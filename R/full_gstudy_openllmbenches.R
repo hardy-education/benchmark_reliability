@@ -148,6 +148,13 @@ gstudy_summary|> print(n=253)
 toc()
 
 
+saveRDS(list(mod = full_gstudy_fit,
+             sum_tab = gstudy_summary),
+        file = here::here("data","results","full_gstudy_openllmbenches.rds"))
+        
+
+
+
 
 
 (mod_type_re = (gstudy_summary |> filter(type&base, !bench, !auth, !resid) |> 
