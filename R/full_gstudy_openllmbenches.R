@@ -118,12 +118,6 @@ full_gstudy_fit = metadf |>
   )
 summary(full_gstudy_fit)
 
-full_gstudy_fit |> VarCorr() |>
-  janitor::clean_names() |>
-  as_tibble() |>
-  filter(is.na(var2)) |> 
-  mutate(pct = round(vcov / sum(vcov) * 100,2)) |> print(n=253)
-
 gstudy_summary = full_gstudy_fit |> VarCorr() |>
   janitor::clean_names() |>
   as_tibble() |>
@@ -152,7 +146,9 @@ saveRDS(list(mod = full_gstudy_fit,
              sum_tab = gstudy_summary),
         file = here::here("data","results","full_gstudy_openllmbenches.rds"))
         
-
+# saveRDS(list(mod = full_gstudy_fit,
+#              sum_tab = gstudy_summary),
+#         file = "~/Library/CloudStorage/OneDrive-Stanford/Projects/ai_benchmark/github/benchmark_reliability/benchmark_reliability/data/results/full_gstudy_openllmbenches.rds")
 
 
 
@@ -171,20 +167,20 @@ m3 = metadf |>
        + log_parms
        + (log_parms||bench)
        # + (log_parms|base)
-       + (log_parms||architecture:generation:precision:merged)
+       + (log_parms||architecture:generation:merged)
        # + (removed+not_avail|author)
        + (log_parms||author:removed:not_avail)
        + (log_parms||type:chat_template:mo_e)
-       + (log_parms||bench:architecture:generation:precision:merged)
+       + (log_parms||bench:architecture:generation:merged)
        + (log_parms||bench:author:removed:not_avail)
        + (log_parms||bench:type:chat_template:mo_e)
-       + (log_parms||architecture:generation:precision:merged:author:removed:not_avail)
-       + (log_parms||architecture:generation:precision:merged:type:chat_template:mo_e)
+       + (log_parms||architecture:generation:merged:author:removed:not_avail)
+       + (log_parms||architecture:generation:merged:type:chat_template:mo_e)
        + (log_parms||author:removed:not_avail:type:chat_template:mo_e)
-       + (log_parms||bench:architecture:generation:precision:merged:type:chat_template:mo_e)
-       + (log_parms||author:removed:not_avail:architecture:generation:precision:merged:type:chat_template:mo_e)
+       + (log_parms||bench:architecture:generation:merged:type:chat_template:mo_e)
+       + (log_parms||author:removed:not_avail:architecture:generation:merged:type:chat_template:mo_e)
        + (log_parms||bench:author:removed:not_avail:type:chat_template:mo_e)
-       + (log_parms||bench:architecture:generation:precision:merged:author:removed:not_avail)
+       + (log_parms||bench:architecture:generation:merged:author:removed:not_avail)
        
        ,
        data = _,
@@ -204,3 +200,33 @@ m3 |> VarCorr() |>
 
 
 toc()
+
+
+
+gstudy_summary = m3 |> VarCorr() |>
+  janitor::clean_names() |>
+  as_tibble() |>
+  filter(is.na(var2)) |> 
+  mutate(pct = round(vcov / sum(vcov) * 100,2),
+         bench = str_detect(grp,"bench"),
+         base = str_detect(grp,"base|arch"),
+         auth = str_detect(grp,"author|contrib"),
+         type = str_detect(grp,"type|tune"),
+         resid = grp=="Residual",
+         npar = var1 == "log_parms",
+         npar= replace_na_with(npar,0),
+         base_type = base & type, 
+         base_type_bench = base_type & bench, 
+         across(bench:base_type_bench,\(x) vcov*as.numeric(x))
+  )
+
+gstudy_summary|> print(n=253)
+
+
+
+toc()
+
+
+saveRDS(list(mod = m3,
+             sum_tab = gstudy_summary),
+        file = here::here("data","results","full_gstudy_openllmbenches_best_fit.rds"))
