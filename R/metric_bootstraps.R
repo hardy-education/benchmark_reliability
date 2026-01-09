@@ -91,7 +91,8 @@ make_sample_response = function(sampdf,longrespdf,nitems = 100,
 
 make_feols_df = function(wide){
   wide |> pivot_longer(-model,names_to = "item",values_to = "resp") |> 
-    left_join(wide |> pivot_longer(-model,names_to = "itemx",values_to = "otheritemscore") , 
+    left_join(wide |> pivot_longer(-model,names_to = "itemx",
+                                   values_to = "otheritemscore") , 
               by = c("model"),relationship = "many-to-many") |> 
     filter(item != itemx) 
 }
@@ -257,7 +258,8 @@ get_omega <- function(df,replaceval =0,
   # Calculate tetrachoric correlation
   df = checkmtx(df)
   tic(stringr::str_c("omega_",nfactors))
-  om = psych::omegah(df |> select(-any_of(c("model","id"))) |> naniar::replace_na_with(replaceval), 
+  om = psych::omegah(df |> select(-any_of(c("model","id"))) |> 
+                       naniar::replace_na_with(replaceval), 
                      nfactors = nfactors,flip = F,
                      poly = poly,
                      plot=F,
@@ -280,7 +282,8 @@ get_omega_loadings <- function(om, nf
 get_omega_corlong <- function(om
 ) {
   
-  om$R  |> as_tibble(rownames = "idx")  |> pivot_longer(cols = -idx, names_to = "item",values_to = "rho") 
+  om$R  |> as_tibble(rownames = "idx")  |> 
+    pivot_longer(cols = -idx, names_to = "item",values_to = "rho") 
 }
 
 get_all_omegadf <- function(df,nf=5,...) {
@@ -334,7 +337,8 @@ get_alpha <- function(df,replaceval =0) {
                        use = "pairwise.complete.obs")
   toc()
   inner_join(alpha$item.stats |> as_tibble(rownames = "item"), 
-             alpha$alpha.drop |> as_tibble(rownames = "item"), by = "item") |> 
+             alpha$alpha.drop |> as_tibble(rownames = "item"), 
+             by = "item") |> 
     clean_names() |> 
     rename(r_rest = r_cor,
            alpha_rest = raw_alpha,
@@ -352,7 +356,9 @@ get_alpha <- function(df,replaceval =0) {
 # @param J number of items
 # @param m number of response categories
 compute.PP <- function(X,P,N,J,m=2){
-  label <- as.vector(t(outer(paste("P(X",substr(as.character(100+(1:J)),2,3),">=",sep=""),paste(1:(m-1),")",sep=""), paste, sep="")))
+  label <- as.vector(t(outer(paste("P(X",
+                                   substr(as.character(100+(1:J)),2,3),">=",sep=""),
+                             paste(1:(m-1),")",sep=""), paste, sep="")))
   PP <- matrix(0,J*(m-1),J*(m-1))
   i <- 0
   j <- 0
@@ -742,7 +748,8 @@ mirt_fits = function(data_wide,
       # Change item labelling if no. items > 10
       if(ni > 10) {
         p2 <- p2 +
-          geom_text(aes(label = items), nudge_x = .75, color = "darkgrey", size = 2, check_overlap = T) +
+          geom_text(aes(label = items), nudge_x = .75, 
+                    color = "darkgrey", size = 2, check_overlap = T) +
           theme(axis.text.y = element_blank(),
                 panel.grid.major.y = element_blank())
       }
@@ -920,13 +927,20 @@ get_bonus_metrics = function(df){
 }
 
 
-make_gstudy_df = function(benchdf){
+make_dstudy_df = function(benchdf,aggdf,item_samples){
   tic("G-D study fits")
   for(b in aggdf$benchmark |> unique()){
     print(b)
-    rankrefits[[b]] <- future_map(unique(filter(benchdf,benchmark==b)$metric),
-                                  \(m) make_dstudy_df(df = benchdf |>filter(benchmark==b) |>
-                                                        distinct() ,verbose = F) |>
+    rankrefits[[b]] <- future_map(unique(filter(item_samples,benchmark==b)$metric),
+                                  \(m) make_gstudy_df(df = benchdf |>
+                                                        filter(benchmark==b) |>
+                                                        inner_join(filter(item_samples,
+                                                                          benchmark==b,
+                                                                          metric==m) |> 
+                                                                     select(item) ,
+                                                                   by="item") |>
+                                                        distinct() ,
+                                                      verbose = F) |>
                                     mutate(metric = m),
                                   .progress = T,
                                   .options = furrr::furrr_options(seed = TRUE))
@@ -1056,9 +1070,11 @@ irdf = map(relfits,
            .progress = T) |> 
   list_rbind(names_to = "iter_grp") |> 
   mutate(CA = (r_rest)^2/alpha_rest,
+         across(any_of(c("cor2", "ar2","r2","pr2" ,"apr2" ,
+                         "wr2","war2" ,"wpr2" , "wapr2" )),
+                \(x) 1 - (1-x)/i_var, .names = "{.col}_pgl6"), # pseudo GL6
          DI_g6 = (r_rest)^2/g6_rest,
          DI_std = (r_rest)^2/alpha_rest_std,
-         # split = if_else(!is.na(split),"test","train")
          )  |> 
   rename(L6 = r2, D_L6 = intercept, 
          itcor = raw_r,
@@ -1078,28 +1094,35 @@ irdf = map(relfits,
          valid_item = !is.na(cor2)
   ) |> 
   group_by(item) |> 
-  mutate(countvalid = sum(valid_item)) |> ungroup() |>   
+  mutate(countvalid = sum(valid_item),split="train") |> ungroup() |>   
   select(iter,benchmark,item,iter_grp,
          n_iobs:ni,any_of(c("nobs","valid_n","n_valmods")),
          nvali:countvalid,
-         # split,
+         split,
          L6,MS,CA,
          # G2,D,itcor,
          everything(),-any_of(c("aic","bic","rmse","sigma","irt"))
   ) |> distinct() |> 
-  mutate(iter=glue("{ifelse(ordered_models,'hilo','rand')}_long_{iter}")) |> select(iter, everything())
+  mutate(iter=glue("{ifelse(ordered_models,'hilo','rand')}_long_{iter}")) |> 
+  select(iter, everything())
 
-saveRDS(irdf , here::here("benchmark_reliability", "data","results","boots",glue::glue("itemfit_rel_boot_{today()}.rds")))
+saveRDS(irdf, here::here("benchmark_reliability", "data","results","boots",
+                         glue::glue("itemfit_rel_boot_{today()}.rds")))
 
 
 
 tic()
-adf = suppressMessages(irdf |> filter(valid_item,split=="train",
-                                      valid_item,countvalid>5) |> 
+adf = suppressMessages(irdf  |> remove_constant() |> 
+                         select(boot,h,z, everything(),
+                                -any_of(c("alpha_se", "lsym_am_peirce3","cmax"))) |> 
+                         filter(countvalid>5|((countvalid>1) & (benchmark%in% c("mmlu_pro",
+                                                                                "bbh",
+                                                                                "wikifact",
+                                                                                "air_bench_2024")))) |> 
                          mutate(iter_grp = as_factor(iter_grp),
                                 item = as_factor(item),
                                 benchmark = as_factor(benchmark),
-                                itemgroup = interaction(iter,val_test_set,iter_grp)) |> 
+                                itemgroup = interaction(iter,iter_grp)) |> 
                          group_by(benchmark) |>
                          datawizard::adjust(effect = c("ni",
                                                        "n_valmods",
@@ -1107,7 +1130,6 @@ adf = suppressMessages(irdf |> filter(valid_item,split=="train",
                                                        "itemgroup"
                          ),
                          select =  "L6:DI_std",
-                         # additive = T,
                          multilevel = T,
                          keep_intercept = T,
                          verbose = T
@@ -1121,16 +1143,17 @@ adf = suppressMessages(irdf |> filter(valid_item,split=="train",
 )
 adf
 
-adf = adf |> mutate(rand = runif(nrow(adf)), rand2 = rnorm(nrow(adf)))
+adf = adf |> mutate(rand = runif(nrow(adf)))
 gc()
-adf |> saveRDS(here::here("benchmark_reliability/data/results/boots", glue::glue("item_agg_adj_{today()}.rds")))
+adf |> saveRDS(here::here("benchmark_reliability/data/results/boots", 
+                          glue::glue("item_agg_adj_{today()}.rds")))
 toc()
 
 
-rankrefits = list()
+
 gc()
 
-nitems_for_gstudy = 50
+nitems_for_gstudy = 15
 
 item_samples = adf  |> 
   group_by(benchmark) |> 
@@ -1149,20 +1172,27 @@ item_samples = adf  |>
   slice_max(order_by = est, by = c(benchmark,metric),n = nitems_for_gstudy) |> 
   select(benchmark,item,metric) |> distinct()
 
-benchdf = aggdf |> semi_join(item_samples)
+benchdf = aggdf |> 
+  semi_join(item_samples, by = c("benchmark","item")) |> 
+  semi_join(hilo_splits |> 
+              filter(split=="test") |> 
+              select(benchmark,model) |> 
+              distinct(),
+            by=c("benchmark","model"))
 
 
 plan("multisession", workers = 4L)
 
 
-rankrefits = list()
 
 gc()
-dstudydf = make_gstudy_df(benchdf)
+tic()
+dstudydf = make_dstudy_df(benchdf,aggdf,item_samples)
+dstudydf = list_rbind(dstudydf,names_to="bench_metric") 
+toc()
 
-dstudydf = list_rbind(rankrefits,names_to="bench_metric") 
-
-dstudydf |> saveRDS(here::here("benchmark_reliability/data/results/boots", glue::glue("item_gdstudydf_{today()}.rds")))
+dstudydf |> saveRDS(here::here("benchmark_reliability/data/results/boots", 
+                               glue::glue("item_gdstudydf_n{nitems_for_gstudy}_{today()}.rds")))
 toc()
 
 metrics_to_filter = c("")
@@ -1170,25 +1200,51 @@ metrics_to_filter = c("")
 dstudydf |> select(bench_metric,benchmark,metric,m_rel,i_rel) |> distinct() |> 
   filter(!(metric %in% metrics_to_filter)) |>
   mutate(isrand = if_else(metric %in% c("rand","rand2"),"rand","normal")) |> 
-  ggplot(aes(x= i_snr, y = m_snr, color=metric,shape = metric)) + 
-  geom_hline(mapping= aes(yintercept = m_snr),
+  ggplot(aes(x= i_rel, y = m_rel, color=metric,shape = metric)) + 
+  geom_hline(mapping= aes(yintercept = m_rel),
              data = subset(dstudydf,metric == "rand")) + 
-  geom_vline(mapping= aes(xintercept = i_snr),
+  geom_vline(mapping= aes(xintercept = i_rel),
              data = subset(dstudydf,metric == "rand")) + 
   theme_minimal() + 
-  scale_shape_manual(values = c(15:18,1:7,21:24,15:19,1:7,21:24,15:18,1:7,21:24,15:19,1:7,21:24,15:18,1:7,21:24,15:19,1:7,21:24)) +
+  scale_shape_manual(values = rep(c(15:18,1:7,21:24,15:19,1:7,21:24,15:18,1:7,
+                                    21:24,15:19,1:7,21:24,15:18,1:7,21:24,15:19,
+                                    1:7,21:24),20)) +
   geom_point(size=3) + 
-  labs(title = "Model SNR vs. Item SNR", x = "Item-diff SNR", y = "Model-score SNR") + 
-  guides(shape = guide_legend(ncol=18),color = guide_legend(ncol=18)) +
-  theme(legend.position = "bottom") + facet_wrap(~benchmark,scales="free")
+  labs(title = "Bonus Absolute Model SNR vs. Item SNR", x = "Item-score SNR", 
+       y = "Model-score SNR") + 
+  guides(shape = guide_legend(ncol=25,override.aes = list(size =1)),
+         color = guide_legend(ncol=25)) +
+  theme(legend.position = "bottom",
+        legend.title = element_blank(),
+        legend.key.size = unit(0.04, "cm"),
+        legend.text = element_text(size = 7),
+        # Adjust horizontal and vertical spacing between items
+        legend.spacing.x = unit(0.001, "cm"),
+        legend.spacing.y = unit(0.001, "cm"),
+        # Reduce the margin around the whole legend box
+        legend.margin = margin(t = 0.001, r = 0.001, b = 0.001, l = 0.001, unit = "cm")
+  ) +
+  facet_wrap(~benchmark,scales="free")
 
+
+
+### visual check on benchmark similarity across metrics
+coltoshow = "m_rel"
+dstudydf |> mutate( rel = m_rel*i_rel) |> select(metric,everything(),-bench_metric)|>  group_by(benchmark)  |> mutate(across(item:rel,\(x) winsorize(x,threshold=5,method="zscore",robust=T)),  Residual = -Residual, across(item:rel,\(x) percent_rank(x)-0.5)) |> ungroup()  |> select(metric,benchmark,any_of(c(coltoshow))) |> pivot_wider(names_from = benchmark,values_from = any_of(c(coltoshow))) |> rowwise() |> mutate(med = median(c_across(wikifact:openllm_math)),avg = mean(c_across(wikifact:openllm_math)),min = min(c_across(wikifact:openllm_math)), avgavg = (med + avg + min)/2) |> arrange(-avgavg) |> select(-metric) |> pairs.panels(pch = ".",gap=0)
+
+### table check on metric performance across benchmarks
+dstudydf |> mutate( rel = m_rel*i_rel) |> select(metric,everything(),-bench_metric)|>  group_by(benchmark)  |> mutate(across(item:rel,\(x) winsorize(x,threshold=5,method="zscore",robust=T)),  Residual = -Residual, across(item:rel,\(x) percent_rank(x)-0.5)) |> ungroup()  |> select(metric,benchmark,any_of(c(coltoshow))) |> pivot_wider(names_from = benchmark,values_from = any_of(c(coltoshow))) |> rowwise() |> mutate(med = median(c_across(wikifact:openllm_math)),avg = mean(c_across(wikifact:openllm_math)),min = min(c_across(wikifact:openllm_math)), avgavg = (med + avg + min)/2) |> arrange(-avgavg) |> print(n=200)
 
 
 ## make line plots 
 ## 
 
 
-expand_grid(num_items = c(1:20,25,30,40,50,75,100,125,250,500,750,1000),num_mods = c(1:20,25,30,40,50,75,100,125,250,500,750,1000),benchmark = unique(dstudydf$benchmark)) |> right_join(dstudydf_mad, by = "benchmark",multiple = "all",relationship = "many-to-many") |>
+expand_grid(num_items = c(1:20,25,30,40,50,75,100,125,250,500,750,1000),
+            num_mods = c(1:20,25,30,40,50,75,100,125,250,500,750,1000),
+            benchmark = unique(dstudydf$benchmark)) |> 
+  right_join(dstudydf_mad, by = "benchmark",multiple = "all",
+             relationship = "many-to-many") |>
   mutate(num_item =1,
          num_mod = 1, i_rel = item / (item + model + Residual),
          m_dep = model / (item + model + Residual) ,
@@ -1200,8 +1256,165 @@ expand_grid(num_items = c(1:20,25,30,40,50,75,100,125,250,500,750,1000),num_mods
          m_snr_D = m_rel_D / (1 - m_rel_D),
          i_snr_D = i_rel_D / (1 - i_rel_D),
          m_errtol_D = sqrt((1 - m_rel_D) / m_rel_D),
-         i_errtol_D = sqrt((1 - i_rel_D) / i_rel_D), metric = if_else(metric == "rand","baseline",metric),metric = if_else(metric == "comp","composite",metric),
+         i_errtol_D = sqrt((1 - i_rel_D) / i_rel_D), 
+         metric = if_else(metric == "rand","baseline",metric),
+         metric = if_else(metric == "comp","composite",metric),
   ) |> left_join(item_counts, by = "benchmark"
   ) |> mutate(prop_items = num_items/n
-  ) |> filter(metric %in% c("a","CA","Hi","baseline","G2","composite"),num_items <90) |> ggplot(aes(x = num_items, y = m_rel_D, color=metric,linetype=metric)) + geom_hline(yintercept = 0.9, linewidth=0.4, color = "darkred") + geom_line(linewidth=1) + theme_minimal() + ggthemes::scale_color_colorblind() + labs(title = "Model Rank Reliability vs. Number of Items Used", x = "Number of Items Used", y = "Model Rank Reliability (Adjusted for Dependent Items)") + theme(legend.position = "bottom") + facet_wrap(~benchmark)
+  ) |> filter(metric %in% c("a","CA","Hi","baseline","G2","composite"),num_items <90) |> 
+  ggplot(aes(x = num_items, y = m_rel_D, color=metric,linetype=metric)) + 
+  geom_hline(yintercept = 0.9, linewidth=0.4, color = "darkred") + 
+  geom_line(linewidth=1) + theme_minimal() + ggthemes::scale_color_colorblind() + 
+  labs(title = "Model Rank Reliability vs. Number of Items Used", 
+       x = "Number of Items Used", 
+       y = "Model Rank Reliability (Adjusted for Dependent Items)") + 
+  theme(legend.position = "bottom") + facet_wrap(~benchmark)
+
+
+
+
+# 
+# 
+# # Testset on metrics Bootstrap Looping ----
+# testrelfits = list()
+# 
+# 
+# 
+# for(b in benchmarks){
+#     
+#     print(glue::glue("Bootstrap {i} - Items {ni} - Benchmark {b}"))
+#     tic("Total Iteration Time")
+#     
+#     # Load Data
+#     data_wide = make_sample_response(
+#       hilo_splits,
+#       benchdf,
+#       b = b,
+#       items = benchdf |> filter(benchmark==b) |> pull(item) |> unique(),
+#       samp = "test",
+#     ) |> as.data.frame()
+#     
+#     testreldf = create_sample_metadata(data_wide,iter = length(relfits)+1) |> 
+#       mutate(boot = i)
+#     
+#     # # IRT Modeling
+#     # mirt_results = mirt_fits(
+#     #   data_wide = data_wide,
+#     #   theta_range = c(-9,9),
+#     #   irts = c("2PL"),
+#     #   val_test_set = T,
+#     #   samp = "boot",
+#     #   sampmeta = sampmeta
+#     # )
+#     
+#     
+#     testreldf = testreldf |> left_join(HiZi_est(data_wide),by="item")
+#     
+#     tic("alpha")
+#     testreldf = suppressMessages(
+#       tryCatch({
+#         testreldf |> left_join(get_alpha(data_wide),by="item")
+#       },
+#       error = function(e){
+#         testreldf
+#       })
+#     )
+#     toc()
+#     # testreldf = testreldf |> left_join(get_all_omegadf(data_wide,nf=3),by="item")
+#     
+#     # testreldf = testreldf |> left_join(get_pc_loading(data_wide,nfactors=3),by="item")
+#     
+#     testreldf = testreldf |> left_join(feols_estimations(make_feols_df(data_wide)),by="item")
+#     
+#     testreldf = testreldf |> left_join(create_cortab(cor(data_wide |> 
+#                                                    select(-model)) |> 
+#                                                as_tibble(rownames="item") |> 
+#                                                pivot_longer(-item, 
+#                                                             names_to = "itemx",
+#                                                             values_to = "rho")),
+#                                by="item")
+#     
+#     testreldf = testreldf |> left_join(MS_est(data_wide),by="item")
+#     
+#     if(exists("item_similarity_enhanced")){
+#       testreldf = testreldf |> left_join(get_bonus_metrics(data_wide |> select(-model)),by="item")
+#     }
+#     
+#     testrelfits[[length(testrelfits)+1]] = list(
+#       
+#       testreldf = testreldf
+#       # irtdf = irtdf,
+#       # thtdf = thtdf |> bind_rows(),
+#       # irt_models = tempirtfits,
+#       # itdf = itdfs |> bind_rows(),
+#       # moddf = moddfs |> bind_rows()
+#     )
+#     toc()    
+#     
+#     
+#     saveRDS(testrelfits , here::here("benchmark_reliability", "data","results",
+#                                      "boots",glue::glue("itemfit_testrel_boot_{today()}.rds"))) 
+#     
+#     toc()
+#     gc()
+#     
+#     
+#   
+# }
+# irdf_test = map(testrelfits,
+#            \(x) x$testreldf, # |> 
+#            # full_join(
+#            #   x$itdf |> 
+#            #     filter(irt%in% c("2PL")) |>
+#            #     select(item,irt, any_of(c("a","b",# "g",
+#            #                               "infit","outfit",
+#            #                               "z.infit","z.outfit",
+#            #                               "X2","split","val_test_set",
+#            #                               "Zh","G2"
+#            #     )),
+#            #     ) |> distinct(),
+#            #   by = c("item")
+#            # ), 
+#            .progress = T) |> 
+#   list_rbind(names_to = "iter_grp") |> 
+#   mutate(CA = (r_rest)^2/alpha_rest,
+#          across(any_of(c("cor2", "ar2","r2","pr2" ,"apr2" ,"wr2","war2" ,"wpr2" , "wapr2" )),
+#                 \(x) 1 - (1-x)/i_var, .names = "{.col}_pgl6"), # pseudo GL6
+#          DI_g6 = (r_rest)^2/g6_rest,
+#          DI_std = (r_rest)^2/alpha_rest_std,
+#   )  |> 
+#   rename(L6 = r2, D_L6 = intercept, 
+#          itcor = raw_r,
+#          itcor_std = std_r,
+#          ctt_disc = r_rest, ## corrected item-total correlation
+#          # ctt_disc = r_rest, 
+#          obsr2 = meanobsr2) |> 
+#   replace_inf() |> 
+#   select(-any_of(c("aic","bic","rmse","sigma","irt"))
+#   ) |> distinct() |> 
+#   group_by(iter,iter_grp,benchmark) |> 
+#   mutate( #n_items = n_distinct(item),
+#     nvali = n_distinct(item,na.rm=T)-sum(is.na(cor2))
+#   ) |> ungroup()|> 
+#   mutate(n_valmods = round(nobs/ni),
+#          n_models = if_else(is.na(nmods),n_valmods,nmods), 
+#          valid_item = !is.na(cor2)
+#   ) |> 
+#   group_by(item) |> 
+#   mutate(countvalid = sum(valid_item)) |> ungroup() |>   
+#   select(iter,benchmark,item,iter_grp,
+#          n_iobs:ni,any_of(c("nobs","valid_n","n_valmods")),
+#          nvali:countvalid,
+#          split,
+#          L6,MS,CA,
+#          # G2,D,itcor,
+#          everything(),-any_of(c("aic","bic","rmse","sigma","irt"))
+#   ) |> distinct() |> 
+#   mutate(iter=glue("{ifelse(ordered_models,'hilo','rand')}_long_{iter}")) |> 
+#   select(iter, everything())
+# 
+# saveRDS(irdf_test , here::here("benchmark_reliability", "data","results","boots",glue::glue("itemfit_testrel_boot_{today()}.rds")))
+# 
+# 
+
 
