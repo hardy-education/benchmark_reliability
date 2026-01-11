@@ -247,6 +247,44 @@ testInfoCompare <- function(modlist, # model1, model2,
 
 ## Metric Functions -------
 
+
+create_sample_metadata = function(df,b = NULL,iter = 1,
+                                  col_list = list(
+                                    iter = iter,
+                                    nmods = n_unique(df$model),
+                                    ni = ncol(df)-1),
+                                  split = "train"
+){
+  
+  if(is.null(b)){
+    b = names(df)[3] |> str_remove("_q?[0-9]+$")
+  }
+  
+  col_list$benchmark = b
+  
+  sampmeta = df |> 
+    pivot_longer(-c(model),names_to = "item",values_to = "resp") |>
+    group_by(item) |> 
+    summarize(n_iobs = n(),
+              i_mean = mean(resp,na.rm=T),
+              i_sd = sd(resp,na.rm=T),
+              i_var = var(resp,na.rm=T)
+    ) |> 
+    ungroup() |> 
+    mutate(#benchmark = b,
+      !!!col_list
+      # n_items = n_unique(item),
+      # n_models = n_unique(df$model),
+      # n_obs = n(),
+      # iter = col_list$iter,
+      # ni = col_list$ni,
+      # nmods = col_list$nmods
+    ) 
+  return(sampmeta)
+}
+
+
+
 get_omega <- function(df,replaceval =0,
                       nfactors = 3,
                       cut=0.3,
@@ -487,44 +525,6 @@ singlemokken <- function(data) {
   
 }
 
-make_gstudy_df = function(df,verbose = F){  
-    mod = df |> 
-      lmer(formula = resp ~ 1 
-           + (1|item)
-           + (1|model)
-           ,
-           na.action = na.exclude,
-           control = lmerControl(optimizer = "bobyqa",
-                                 optCtrl = list(maxfun = 1e5),
-                                 calc.derivs = F)
-      ) 
-  
-  if(verbose){ 
-    print(summary(mod))
-  }
-  
-  modvars = mod |> VarCorr() |>
-    janitor::clean_names() |>
-    as_tibble() |>
-    select(-var2, -var1, -sdcor) |>
-    mutate(benchmark = b) |> 
-      pivot_wider(names_from = grp, 
-                  values_from = vcov) |> 
-      mutate(m_rel = model / ( model + Residual),
-             i_rel = item / (item + Residual),
-             m_dep = model / (item + model + Residual) ,
-             i_dep = item / (item + model + Residual) ,
-             m_snr = m_rel / (1 - m_rel),
-             i_snr = i_rel / (1 - i_rel),
-             md_snr = m_dep / (1 - m_dep),
-             id_snr = i_dep / (1 - i_dep)
-      )
-    return(modvars)
-  
-  
-}
-
-
 feols_estimations = function(idf,get_coef_stats = F){
    tic("feols fit")
   
@@ -568,41 +568,6 @@ feols_estimations = function(idf,get_coef_stats = F){
   
 }
 
-
-create_sample_metadata = function(df,b = NULL,iter = 1,
-                                  col_list = list(
-                                    iter = iter,
-                                    nmods = n_unique(df$model),
-                                    ni = ncol(df)-1),
-                                  split = "train"
-                                  ){
-
-  if(is.null(b)){
-    b = names(df)[3] |> str_remove("_q?[0-9]+$")
-  }
-  
-  col_list$benchmark = b
-  
-  sampmeta = df |> 
-    pivot_longer(-c(model),names_to = "item",values_to = "resp") |>
-    group_by(item) |> 
-    summarize(n_iobs = n(),
-              i_mean = mean(resp,na.rm=T),
-              i_sd = sd(resp,na.rm=T),
-              i_var = var(resp,na.rm=T)
-    ) |> 
-    ungroup() |> 
-    mutate(#benchmark = b,
-           !!!col_list
-           # n_items = n_unique(item),
-           # n_models = n_unique(df$model),
-           # n_obs = n(),
-           # iter = col_list$iter,
-           # ni = col_list$ni,
-           # nmods = col_list$nmods
-    ) 
-  return(sampmeta)
-}
 
 MS_est = function(df){
   df = checkmtx(df)
@@ -701,9 +666,9 @@ mirt_fits = function(data_wide,
     sampmeta = create_sample_metadata(data_wide)
   }
   b = sampmeta$benchmark[1]
-  ni = sampmeta$n_items[1]
+  ni = sampmeta$ni[1]
   i = sampmeta$iter[1]
-  nmods = sampmeta$n_models[1]
+  nmods = sampmeta$nmods[1]
   
   
   tic("mirt irt")
@@ -731,6 +696,7 @@ mirt_fits = function(data_wide,
                       model = 1, 
                       itemtype = irt, 
                       accelerate = "squarem",
+                      optimizer = "L-BFGS-B", ## needs to be changed for non-2PLs
                       technical = list(NCYCLES=2000,
                                        theta_lim = theta_range,
                                        MAXQUAD=100000)
@@ -778,7 +744,7 @@ mirt_fits = function(data_wide,
                                                heights = c( 1.5, 1.5)), 
                              ncol = 2)
       
-      print(p)
+      print(show(p))
       
       
       preds = fscores(md,
@@ -796,26 +762,32 @@ mirt_fits = function(data_wide,
                            th = p1@data$value,
                            predicted = preds[,1],
                            se = preds[,2],
-                           irt = irt,benchmark = b,
+                           irt = irt,
+                           benchmark = b,
                            n_items = ni,iter = i,
-                           ni_used = ncol(data_wide)-1,
-                           val_test_set = val_test_set,
+                           # ni_used = ncol(data_wide)-1,
+                           # val_test_set = val_test_set,
                            n_models = nmods,
                            split = F,
                            rxx = empirical_rxx(preds)
         )
-      th_vals = p5@data |> tibble() |> mutate(irt = irt,benchmark = b,
+      th_vals = p5@data |> tibble() |> mutate(irt = irt,
+                                              # split = F,
+                                              benchmark = b,
                                               n_items = ni,iter = i,
-                                              ni_used = ncol(data_wide)-1,
-                                              val_test_set = val_test_set,
-                                              n_models = nmods)
+                                              # ni_used = ncol(data_wide)-1,
+                                              # val_test_set = val_test_set,
+                                              n_models = nmods
+                                              )
       it_vals = p2@data |> 
         tibble() |> 
-        mutate(irt = irt,benchmark = b,
+        mutate(irt = irt,split = F,
+               benchmark = b,
                n_items = ni,iter = i,
-               ni_used = ncol(data_wide)-1,
-               val_test_set = val_test_set,
-               n_models = nmods) |> 
+               # ni_used = ncol(data_wide)-1,
+               # val_test_set = val_test_set,
+               n_models = nmods
+               ) |> 
         rename(item=items,a=items.a,b =items.b,
                g = items.g,u = items.u) |> 
         left_join(
@@ -831,16 +803,16 @@ mirt_fits = function(data_wide,
                                   "PV_Q1*","G2",starts_with("RMSEA")))),
           by = "item"
         )
-      if(val_test_set){
-        mirt_test_preds = mirt_test_preds(rfit = list(irt_models = list(!!irt := md),
-                                                        irtdf = th_vals,
-                                                        itdf = it_vals,
-                                                        moddf = mo_vals),
-                                        newdat = dat_wide_test)
-        th_vals = bind_rows(th_vals, mirt_test_preds$newth)
-        it_vals = bind_rows(it_vals, mirt_test_preds$newit)
-        
-      } 
+      # if(val_test_set){
+      #   mirt_test_preds = mirt_test_preds(rfit = list(irt_models = list(!!irt := md),
+      #                                                   irtdf = th_vals,
+      #                                                   itdf = it_vals,
+      #                                                   moddf = mo_vals),
+      #                                   newdat = dat_wide_test)
+      #   th_vals = bind_rows(th_vals, mirt_test_preds$newth)
+      #   it_vals = bind_rows(it_vals, mirt_test_preds$newit)
+      #   
+      # } 
       
       
       list(
@@ -852,24 +824,25 @@ mirt_fits = function(data_wide,
     error = function(e){
       th_vals = tibble(value = NA, irt = irt,benchmark = b,
                        n_items = ni,iter = i,
-                       ni_used = ncol(data_wide)-1,
-                       val_test_set = val_test_set,split = F,
+                       # ni_used = ncol(data_wide)-1,
+                       # val_test_set = val_test_set,split = F,
                        n_models = nmods)
       it_vals = tibble(item=colnames(data_wide |> select(-model)),
                        a=NA,b =NA,
                        g =NA,u =NA, irt = irt,benchmark = b,iter = i,
-                       val_test_set = val_test_set,
+                       # val_test_set = val_test_set,
                        ni_used = ncol(data_wide)-1,
                        n_items = ni,
                        n_models = nmods
       )
       mo_vals = tibble(model = data_wide$model,
                        th = NA,
-                       irt = irt,benchmark = b,
-                       n_items = ni,iter = i,
-                       ni_used = ncol(data_wide)-1,
-                       val_test_set = val_test_set,
-                       n_models = nmods
+                       irt = irt,
+                       # benchmark = b,
+                       # n_items = ni,iter = i,
+                       # ni_used = ncol(data_wide)-1,
+                       # val_test_set = val_test_set,
+                       # n_models = nmods
       )
       return(list(
         irtmod = NULL,
@@ -887,8 +860,10 @@ mirt_fits = function(data_wide,
     
   }
   tempirtfits = tempirtfits[!sapply(tempirtfits,is.null)]
-  
+
   irtdf = list()
+  if(length(tempirtfits)>=2){
+
   for(ii in 1:(length(tempirtfits)-1)){
     for(jj in (ii+1):length(tempirtfits)){
       if(ii != jj){
@@ -911,14 +886,22 @@ mirt_fits = function(data_wide,
       }
       
     }}
+  }
   if(length(irtdf)>0){
     irtdf = irtdf |> bind_rows()
   } else {
     irtdf = tibble()
   }
+  
+  return(list(
+    irt_models = tempirtfits,
+    irtdf = irtdf,
+    thtdf = list_rbind(thtdf,names_to = "irt"),
+    itdf = list_rbind(itdfs,names_to = "irt"),
+    moddf = list_rbind(moddfs,names_to = "irt")
+  ))
 
 }
-
 
 
 
@@ -927,8 +910,72 @@ get_bonus_metrics = function(df){
 }
 
 
+recover_bonus_metrics = function(rfit){
+  rfit$irt_models.2PL@Data$data |> item_similarity_enhanced()
+}
+
+recover_irt_metrics = function(rfit, theta_range = c(-9,9)){
+  itemDist(rfit$irt_models.2PL, theta_range = theta_range)@data |> 
+    tibble() |> 
+    rename(item=items,a=items.a,b =items.b,
+           g = items.g,u = items.u) |>         left_join(
+             itemfit(rfit$irt_models.2PL,
+                     fit_stats = c("infit","X2","G2","Zh"),
+                     method = "EAP",theta_lim = theta_range,
+                     max_theta=20, 
+                     QMC=T) |> 
+               tibble()  %>%
+               select(item, any_of(c("infit","outfit",
+                                     "PV_Q1","X2",
+                                     "z.infit","z.outfit",
+                                     "S_X2","Zh","X2*","X2*_df",
+                                     "PV_Q1*","G2",starts_with("RMSEA")))),
+             by = "item")
+}
+
+
+make_gstudy_df = function(df,verbose = F){  
+  mod = df |> 
+    lmer(formula = resp ~ 1 
+         + (1|item)
+         + (1|model)
+         ,
+         na.action = na.exclude,
+         control = lmerControl(optimizer = "bobyqa",
+                               optCtrl = list(maxfun = 1e5),
+                               calc.derivs = F)
+    ) 
+  
+  if(verbose){ 
+    print(summary(mod))
+  }
+  
+  modvars = mod |> VarCorr() |>
+    janitor::clean_names() |>
+    as_tibble() |>
+    select(-var2, -var1, -sdcor) |>
+    mutate(benchmark = b) |> 
+    pivot_wider(names_from = grp, 
+                values_from = vcov) |> 
+    mutate(m_rel = model / ( model + Residual),
+           i_rel = item / (item + Residual),
+           m_dep = model / (item + model + Residual) ,
+           i_dep = item / (item + model + Residual) ,
+           m_snr = m_rel / (1 - m_rel),
+           i_snr = i_rel / (1 - i_rel),
+           md_snr = m_dep / (1 - m_dep),
+           id_snr = i_dep / (1 - i_dep)
+    )
+  return(modvars)
+  
+  
+}
+
+
+
 make_dstudy_df = function(benchdf,aggdf,item_samples){
   tic("G-D study fits")
+  rankrefits = list()
   for(b in aggdf$benchmark |> unique()){
     print(b)
     rankrefits[[b]] <- future_map(unique(filter(item_samples,benchmark==b)$metric),
@@ -953,177 +1000,222 @@ make_dstudy_df = function(benchdf,aggdf,item_samples){
 
 
 
-# Bootstrap Looping ----
+# Bootstraps ------
+rerunbootstraps = F
+rerunadjustment = F
+rerunitemsamples = F
+rerungstudies = F
+
+# plan("multisession", workers = 4L)
+
+## Bootstrap Setup ---------
+
+plan("multisession", workers = 4L)
+
 relfits = list()
 
-n_boots = 100
-ni_vals = c(100)
+n_boots = 20
+ni_vals = c(10,10,25,50,100,125,150,175,200)
 
 benchmarks = aggdf$benchmark |> unique()
 
 hilo_splits = make_hilo_splits(aggdf)
 
 
-
-for(i in 1:n_boots){
-  for(ni in ni_vals){
-    for(b in benchmarks){
-      for(ordered_models in c(T)){
-        
-        print(glue::glue("Bootstrap {i} - Items {ni} - Benchmark {b}"))
-        tic("Total Iteration Time")
-        
-        # Load Data
-        data_wide = make_sample_response(
-          hilo_splits,
-          aggdf,
-          b = b,
-          samp = "train",
-        ) |> as.data.frame()
-        
-        reldf = create_sample_metadata(data_wide,iter = length(relfits)+1) |> 
-          mutate(boot = i)
-        
-        # # IRT Modeling
-        # mirt_results = mirt_fits(
-        #   data_wide = data_wide,
-        #   theta_range = c(-9,9),
-        #   irts = c("2PL"),
-        #   val_test_set = T,
-        #   samp = "boot",
-        #   sampmeta = sampmeta
-        # )
-
-        
-        reldf = reldf |> left_join(HiZi_est(data_wide),by="item")
-        
-        tic("alpha")
-        reldf = suppressMessages(
-          tryCatch({
-            reldf |> left_join(get_alpha(data_wide),by="item")
-          },
-          error = function(e){
-            reldf
-          })
-        )
-        toc()
-        # reldf = reldf |> left_join(get_all_omegadf(data_wide,nf=3),by="item")
-        
-        # reldf = reldf |> left_join(get_pc_loading(data_wide,nfactors=3),by="item")
-        
-        reldf = reldf |> left_join(feols_estimations(make_feols_df(data_wide)),by="item")
-        
-        reldf = reldf |> left_join(create_cortab(cor(data_wide |> 
-                                                       select(-model)) |> 
-                                                   as_tibble(rownames="item") |> 
-                                                   pivot_longer(-item, 
-                                                                names_to = "itemx",
-                                                                values_to = "rho")),
-                                   by="item")
-        
-        reldf = reldf |> left_join(MS_est(data_wide),by="item")
-        
-        if(exists("item_similarity_enhanced")){
-        reldf = reldf |> left_join(get_bonus_metrics(data_wide |> select(-model)),by="item")
-        }
-        
-relfits[[length(relfits)+1]] = list(
+## Bootstrap loop ---------
+if(rerunbootstraps){
+  for(b in benchmarks){
+    for(ni in ni_vals){
+      for(i in 1:n_boots){
+    
+        for(ordered_models in c(T)){
+          
+          print(glue::glue("Bootstrap {i} - Items {ni} - Benchmark {b}"))
+          tic("Total Iteration Time")
+          
+          # Load Data
+          data_wide = make_sample_response(
+            hilo_splits,
+            aggdf,
+            b = b,
+            samp = "train",
+          ) |> as.data.frame()
+          
+          reldf = create_sample_metadata(data_wide,
+                                         iter = length(relfits)+1) |> 
+            mutate(boot = i)
+          
+          # # IRT Modeling
+          mirt_results = mirt_fits(
+            data_wide = data_wide,
+            theta_range = c(-9,9),
+            irts = c("2PL"),
+            val_test_set = T,
+            samp = "boot",
+            sampmeta = reldf
+          )
+          
+          if(!is.null(mirt_results$itdf)){
+            reldf = reldf |> left_join(mirt_results$itdf |> 
+                  filter(irt=="2PL"),
+                by = c("item")
+              )
+          }
   
-  reldf = reldf
-  # irtdf = irtdf,
-  # thtdf = thtdf |> bind_rows(),
-  # irt_models = tempirtfits,
-  # itdf = itdfs |> bind_rows(),
-  # moddf = moddfs |> bind_rows()
-)
-toc()    
-
-
-  saveRDS(relfits , here::here("benchmark_reliability", "data","results","boots",glue::glue("itemfit_rel_temp_boot_{today()}.rds"))) 
-
-toc()
-gc()
-
-
+          
+          reldf = reldf |> left_join(HiZi_est(data_wide),by="item")
+          
+          tic("alpha")
+          reldf = suppressMessages(
+            tryCatch({
+              reldf |> left_join(get_alpha(data_wide),by="item")
+            },
+            error = function(e){
+              reldf
+            })
+          )
+          toc()
+          # reldf = reldf |> left_join(get_all_omegadf(data_wide,nf=3),by="item")
+          
+          # reldf = reldf |> left_join(get_pc_loading(data_wide,nfactors=3),by="item")
+          
+          reldf = reldf |> left_join(feols_estimations(make_feols_df(data_wide)),by="item")
+          
+          reldf = reldf |> left_join(create_cortab(cor(data_wide |> 
+                                                         select(-model)) |> 
+                                                     as_tibble(rownames="item") |> 
+                                                     pivot_longer(-item, 
+                                                                  names_to = "itemx",
+                                                                  values_to = "rho")),
+                                     by="item")
+          
+          reldf = reldf |> left_join(MS_est(data_wide),by="item")
+          
+          if(exists("item_similarity_enhanced")){
+          reldf = reldf |> left_join(get_bonus_metrics(data_wide |> select(-model)),by="item")
+          }
+          
+  relfits[[length(relfits)+1]] = c(list(
+    
+    reldf = reldf),
+    irtdf = mirt_results$irtdf,
+    thtdf = mirt_results$thtdf |> bind_rows(),
+    irt_models = mirt_results$irt_models,
+    itdf = mirt_results$itdfs |> bind_rows(),
+    moddf = mirt_results$moddfs |> bind_rows()
+  )
+  toc()    
+  
+  
+    
+  
+  toc()
+  gc()
+  
+  
+  }
+      }
+      saveRDS(relfits , here::here("benchmark_reliability", "data","results",
+                                   "boots",glue::glue("itemfit_rel_temp_boot_{today()}.rds"))) 
+    }
+    
+  }
+  
+  
+  # Combine Results ------
+  
+  tic("Combine Results")
+  irdf = map(relfits,
+             \(x) x$reldf |>  # |> 
+               full_join(recover_irt_metrics(x) |> select(-any_of(c("g","u","means","F1"))),
+                         by = c("item")) |>
+               full_join(recover_bonus_metrics(x) |> select(-any_of(c("mean_sim","sd_sim"))),
+                         by = c("item")),
+  
+                 # x$itdf |>
+                 #   filter(irt%in% c("2PL")) |> #,"3PL")) |>
+                 #   select(item,irt, any_of(c("a","b",# "g",
+                 #                             "infit","outfit",
+                 #                             "z.infit","z.outfit",
+                 #                             "X2","split","val_test_set",
+                 #                             "Zh","G2"
+                 #   )),
+                 #   ) |> distinct(),
+                 # by = c("item")
+               # ),
+             .progress = T) |> 
+    list_rbind(names_to = "iter_grp") |> 
+    mutate(CA = (r_rest)^2/alpha_rest,
+           across(any_of(c("cor2", "ar2","r2","pr2" ,"apr2" ,
+                           "wr2","war2" ,"wpr2" , "wapr2" )),
+                  \(x) 1 - (1-x)/i_var, .names = "{.col}_pgl6"), # pseudo GL6
+           DI_g6 = (r_rest)^2/g6_rest,
+           DI_std = (r_rest)^2/alpha_rest_std,
+           )  |> 
+    rename(L6 = r2, D_L6 = intercept, 
+           itcor = raw_r,
+           itcor_std = std_r,
+           ctt_disc = r_rest, ## corrected item-total correlation
+           # ctt_disc = r_rest, 
+           obsr2 = meanobsr2) |> 
+    replace_inf() |> 
+    select(-any_of(c("aic","bic","rmse","sigma","irt"))
+    ) |> distinct() |> 
+    group_by(iter,iter_grp,benchmark) |> 
+    mutate( #n_items = n_distinct(item),
+      nvali = n_distinct(item,na.rm=T)-sum(is.na(cor2))
+    ) |> ungroup()|> 
+    mutate(n_valmods = round(nobs/ni),
+           n_models = if_else(is.na(nmods),n_valmods,nmods), 
+           valid_item = !is.na(cor2)
+    ) |> 
+    group_by(item) |> 
+    mutate(countvalid = sum(valid_item),split="train") |> ungroup() |>   
+    select(iter,benchmark,item,iter_grp,
+           n_iobs:ni,any_of(c("nobs","valid_n","n_valmods","irt",
+                              "n_models","boot","h","z","split","samp")),
+           nvali:countvalid,
+           L6,MS,CA,
+           # G2,D,itcor,
+           everything(),-any_of(c("aic","bic","rmse","sigma","irt"))
+    ) |> distinct() |> 
+    mutate(iter=glue("{ifelse(ordered_models,'hilo','rand')}_long_{iter}")) |> 
+    select(iter, everything())
+  
+  saveRDS(irdf, here::here("benchmark_reliability", "data","results","boots",
+                           glue::glue("item_rel_boot_{today()}.rds")))
+  toc()
+  gc()
+} else {
+  irdf = readRDS(here("benchmark_reliability/data/results/boots/item_rel_boot_2026-01-10.rds"))
 }
-}
-}
-}
+# irdf = bind_rows(irdf, readRDS(here("benchmark_reliability/data/results/boots/itemfit_rel_boot_2026-01-08.rds")) |> mutate(boot=boot+20)) |> 
+# group_by(item) |> 
+#   mutate(countvalid = sum(valid_item),split="train") |> ungroup()
 
+# tic()
+# bonusdf = future_map(relfits,
+#                      get_bonus_metrics
+#                      , .progress = T) |> 
+#   list_rbind(names_to = "iter_grp")
+# toc()
 
+if(rerunadjustment){
 
-
-irdf = map(relfits,
-           \(x) x$reldf, # |> 
-             # full_join(
-             #   x$itdf |> 
-             #     filter(irt%in% c("2PL")) |> #,"3PL")) |>
-             #     select(item,irt, any_of(c("a","b",# "g",
-             #                               "infit","outfit",
-             #                               "z.infit","z.outfit",
-             #                               "X2","split","val_test_set",
-             #                               "Zh","G2"
-             #     )),
-             #     ) |> distinct(),
-             #   by = c("item")
-             # ), 
-           .progress = T) |> 
-  list_rbind(names_to = "iter_grp") |> 
-  mutate(CA = (r_rest)^2/alpha_rest,
-         across(any_of(c("cor2", "ar2","r2","pr2" ,"apr2" ,
-                         "wr2","war2" ,"wpr2" , "wapr2" )),
-                \(x) 1 - (1-x)/i_var, .names = "{.col}_pgl6"), # pseudo GL6
-         DI_g6 = (r_rest)^2/g6_rest,
-         DI_std = (r_rest)^2/alpha_rest_std,
-         )  |> 
-  rename(L6 = r2, D_L6 = intercept, 
-         itcor = raw_r,
-         itcor_std = std_r,
-         ctt_disc = r_rest, ## corrected item-total correlation
-         # ctt_disc = r_rest, 
-         obsr2 = meanobsr2) |> 
-  replace_inf() |> 
-  select(-any_of(c("aic","bic","rmse","sigma","irt"))
-  ) |> distinct() |> 
-  group_by(iter,iter_grp,benchmark) |> 
-  mutate( #n_items = n_distinct(item),
-    nvali = n_distinct(item,na.rm=T)-sum(is.na(cor2))
-  ) |> ungroup()|> 
-  mutate(n_valmods = round(nobs/ni),
-         n_models = if_else(is.na(nmods),n_valmods,nmods), 
-         valid_item = !is.na(cor2)
-  ) |> 
-  group_by(item) |> 
-  mutate(countvalid = sum(valid_item),split="train") |> ungroup() |>   
-  select(iter,benchmark,item,iter_grp,
-         n_iobs:ni,any_of(c("nobs","valid_n","n_valmods")),
-         nvali:countvalid,
-         split,
-         L6,MS,CA,
-         # G2,D,itcor,
-         everything(),-any_of(c("aic","bic","rmse","sigma","irt"))
-  ) |> distinct() |> 
-  mutate(iter=glue("{ifelse(ordered_models,'hilo','rand')}_long_{iter}")) |> 
-  select(iter, everything())
-
-saveRDS(irdf, here::here("benchmark_reliability", "data","results","boots",
-                         glue::glue("itemfit_rel_boot_{today()}.rds")))
-
-
-
-tic()
-adf = suppressMessages(irdf  |> remove_constant() |> 
-                         select(boot,h,z, everything(),
-                                -any_of(c("alpha_se", "lsym_am_peirce3","cmax"))) |> 
-                         filter(countvalid>5|((countvalid>1) & (benchmark%in% c("mmlu_pro",
-                                                                                "bbh",
-                                                                                "wikifact",
-                                                                                "air_bench_2024")))) |> 
-                         mutate(iter_grp = as_factor(iter_grp),
-                                item = as_factor(item),
-                                benchmark = as_factor(benchmark),
-                                itemgroup = interaction(iter,iter_grp)) |> 
-                         group_by(benchmark) |>
+tic("Adjust Results")
+adf = irdf  |> remove_constant() |> 
+  select(boot,h,z, everything(),
+         -any_of(c("alpha_se", "lsym_am_peirce3","cmax"))) |> 
+  filter(countvalid>5|((countvalid>2) & (benchmark%in% c("mmlu_pro",
+                                                         "bbh",
+                                                         "wikifact",
+                                                         "air_bench_2024")))) |> 
+  mutate(iter_grp = as_factor(iter_grp),
+         item = as_factor(item),
+         benchmark = as_factor(benchmark),
+         itemgroup = interaction(iter,iter_grp,boot)) 
+adf = future_map(unique(adf$benchmark) ,\(x) suppressMessages(adf|> 
+                         filter(benchmark==x) |>
                          datawizard::adjust(effect = c("ni",
                                                        "n_valmods",
                                                        "nobs",
@@ -1140,60 +1232,69 @@ adf = suppressMessages(irdf  |> remove_constant() |>
                          summarise(est = mean(est, na.rm=T)) |> 
                          ungroup() |> 
                          pivot_wider(names_from = metric, values_from = est)
-)
-adf
+), .progress = T)
+adf = list_rbind(adf)
 
 adf = adf |> mutate(rand = runif(nrow(adf)))
 gc()
 adf |> saveRDS(here::here("benchmark_reliability/data/results/boots", 
                           glue::glue("item_agg_adj_{today()}.rds")))
-toc()
-
-
-
 gc()
-
-nitems_for_gstudy = 15
-
-item_samples = adf  |> 
-  group_by(benchmark) |> 
-  mutate(comp = (dense_rank(CA) + dense_rank(Hi) + 
-                   # dense_rank(a) # switch lines if mirt models estimated
-                   dense_rank(a1_approx_cov)
-  )/(3*n())) |> ungroup() |> 
-  pivot_longer(cols = CA:comp,names_to = "metric",values_to = "est") |> 
-  mutate(est = if_else(metric %in% c("outfit","infit","z.outfit","z.infit"
-  ), abs(est),est),
-  est = if_else(metric %in% c(
-    "outfit","infit","z.outfit","z.infit","pr_t",
-    "std_error","clow","average_r","cneg","cse",
-    "Zh","del_alpha"
-  ), -1 * est, est)) |>
-  slice_max(order_by = est, by = c(benchmark,metric),n = nitems_for_gstudy) |> 
-  select(benchmark,item,metric) |> distinct()
-
-benchdf = aggdf |> 
-  semi_join(item_samples, by = c("benchmark","item")) |> 
-  semi_join(hilo_splits |> 
-              filter(split=="test") |> 
-              select(benchmark,model) |> 
-              distinct(),
-            by=c("benchmark","model"))
-
-
-plan("multisession", workers = 4L)
-
-
-
-gc()
-tic()
-dstudydf = make_dstudy_df(benchdf,aggdf,item_samples)
-dstudydf = list_rbind(dstudydf,names_to="bench_metric") 
 toc()
+} else {
+  adf = readRDS(here::here("benchmark_reliability/data/results/boots", "item_agg_adj_2026-01-10.rds"))
+}
 
-dstudydf |> saveRDS(here::here("benchmark_reliability/data/results/boots", 
-                               glue::glue("item_gdstudydf_n{nitems_for_gstudy}_{today()}.rds")))
-toc()
+
+if(rerunitemsamples){
+  nitems_for_gstudy = 100
+
+  item_samples = adf  |> 
+    group_by(benchmark) |> 
+    mutate(comp = (dense_rank(CA) + dense_rank(Hi) + 
+                     # dense_rank(a) # switch lines if mirt models estimated
+                     dense_rank(a1_approx_cov)
+    )/(3*n())) |> ungroup() |> 
+    pivot_longer(cols = CA:comp,names_to = "metric",values_to = "est") |> 
+    mutate(est = if_else(metric %in% c("outfit","infit","z.outfit","z.infit"
+    ), abs(est),est),
+    est = if_else(metric %in% c(
+      "outfit","infit","z.outfit","z.infit","pr_t",
+      "std_error","clow","average_r","cneg","cse",
+      "Zh","del_alpha"
+    ), -1 * est, est)) |>
+    slice_max(order_by = est, by = c(benchmark,metric),n = nitems_for_gstudy) |> 
+    select(benchmark,item,metric) |> distinct()
+  
+  benchdf = aggdf |> 
+    semi_join(item_samples, by = c("benchmark","item")) |> 
+    semi_join(hilo_splits |> 
+                filter(split=="test") |> 
+                select(benchmark,model) |> 
+                distinct(),
+              by=c("benchmark","model"))
+  
+  gc()
+}
+
+## Run generalizability studies -------
+
+if(rerungstudies){
+
+  gc()
+  tic()
+  dstudydf = make_dstudy_df(benchdf,aggdf,item_samples)
+  dstudydf |> saveRDS(here::here("benchmark_reliability/data/results/boots", 
+                                 glue::glue("item_gdstudydf_n{nitems_for_gstudy}_{today()}.rds")))
+  gc()
+  toc()
+  
+} else {
+  dstudydf = readRDS(here("benchmark_reliability/data/results/boots/item_gdstudydf_n90_2026-01-10"))
+}
+
+
+# Analyze results --------
 
 metrics_to_filter = c("")
 
@@ -1228,22 +1329,40 @@ dstudydf |> select(bench_metric,benchmark,metric,m_rel,i_rel) |> distinct() |>
 
 
 
-### visual check on benchmark similarity across metrics
+### visual check on benchmark similarity across metrics --------
 coltoshow = "m_rel"
-dstudydf |> mutate( rel = m_rel*i_rel) |> select(metric,everything(),-bench_metric)|>  group_by(benchmark)  |> mutate(across(item:rel,\(x) winsorize(x,threshold=5,method="zscore",robust=T)),  Residual = -Residual, across(item:rel,\(x) percent_rank(x)-0.5)) |> ungroup()  |> select(metric,benchmark,any_of(c(coltoshow))) |> pivot_wider(names_from = benchmark,values_from = any_of(c(coltoshow))) |> rowwise() |> mutate(med = median(c_across(wikifact:openllm_math)),avg = mean(c_across(wikifact:openllm_math)),min = min(c_across(wikifact:openllm_math)), avgavg = (med + avg + min)/2) |> arrange(-avgavg) |> select(-metric) |> pairs.panels(pch = ".",gap=0)
+dstudydf |> mutate( rel = m_rel*i_rel) |> select(metric,everything(),-bench_metric)|>  
+  group_by(benchmark)  |> mutate(
+    across(item:rel,\(x) winsorize(x,threshold=5,method="zscore",robust=T)),  
+    Residual = -Residual, across(item:rel,\(x) percent_rank(x)-0.5)) |> ungroup()  |> 
+  select(metric,benchmark,any_of(c(coltoshow))) |> 
+  pivot_wider(names_from = benchmark,values_from = any_of(c(coltoshow))) |> 
+  rowwise() |> mutate(med = median(c_across(wikifact:openllm_math)),
+                      avg = mean(c_across(wikifact:openllm_math)),
+                      min = min(c_across(wikifact:openllm_math))) |> 
+  select(-metric) |> pairs.panels(pch = ".",gap=0)
 
-### table check on metric performance across benchmarks
-dstudydf |> mutate( rel = m_rel*i_rel) |> select(metric,everything(),-bench_metric)|>  group_by(benchmark)  |> mutate(across(item:rel,\(x) winsorize(x,threshold=5,method="zscore",robust=T)),  Residual = -Residual, across(item:rel,\(x) percent_rank(x)-0.5)) |> ungroup()  |> select(metric,benchmark,any_of(c(coltoshow))) |> pivot_wider(names_from = benchmark,values_from = any_of(c(coltoshow))) |> rowwise() |> mutate(med = median(c_across(wikifact:openllm_math)),avg = mean(c_across(wikifact:openllm_math)),min = min(c_across(wikifact:openllm_math)), avgavg = (med + avg + min)/2) |> arrange(-avgavg) |> print(n=200)
+### table check on metric performance across benchmarks --------
+dstudydf |> mutate( rel = m_rel*i_rel) |> select(metric,everything(),-bench_metric)|>  
+  group_by(benchmark)  |> mutate(
+    across(item:rel,\(x) winsorize(x,threshold=5,method="zscore",robust=T)),
+    Residual = -Residual, across(item:rel,\(x) percent_rank(x)-0.5)) |> ungroup() |> 
+  select(metric,benchmark,any_of(c(coltoshow))) |> 
+  pivot_wider(names_from = benchmark,values_from = any_of(c(coltoshow))) |> 
+  rowwise() |> mutate(med = median(c_across(wikifact:openllm_math)),
+                      avg = mean(c_across(wikifact:openllm_math)),
+                      min = min(c_across(wikifact:openllm_math)), 
+                      avgavg = (med + avg + min)/3) |> arrange(-avgavg) |> print(n=200)
 
 
-## make line plots 
-## 
+## make Decision Study line plots --------
 
 
 expand_grid(num_items = c(1:20,25,30,40,50,75,100,125,250,500,750,1000),
             num_mods = c(1:20,25,30,40,50,75,100,125,250,500,750,1000),
             benchmark = unique(dstudydf$benchmark)) |> 
-  right_join(dstudydf_mad, by = "benchmark",multiple = "all",
+  right_join(dstudydf_mad |> filter(metric %in% c("a","CA","Hi","baseline","G2","composite")), 
+             by = "benchmark",multiple = "all",
              relationship = "many-to-many") |>
   mutate(num_item =1,
          num_mod = 1, i_rel = item / (item + model + Residual),
@@ -1261,7 +1380,7 @@ expand_grid(num_items = c(1:20,25,30,40,50,75,100,125,250,500,750,1000),
          metric = if_else(metric == "comp","composite",metric),
   ) |> left_join(item_counts, by = "benchmark"
   ) |> mutate(prop_items = num_items/n
-  ) |> filter(metric %in% c("a","CA","Hi","baseline","G2","composite"),num_items <90) |> 
+  ) |> filter(num_items <90) |> 
   ggplot(aes(x = num_items, y = m_rel_D, color=metric,linetype=metric)) + 
   geom_hline(yintercept = 0.9, linewidth=0.4, color = "darkred") + 
   geom_line(linewidth=1) + theme_minimal() + ggthemes::scale_color_colorblind() + 
@@ -1271,150 +1390,5 @@ expand_grid(num_items = c(1:20,25,30,40,50,75,100,125,250,500,750,1000),
   theme(legend.position = "bottom") + facet_wrap(~benchmark)
 
 
-
-
-# 
-# 
-# # Testset on metrics Bootstrap Looping ----
-# testrelfits = list()
-# 
-# 
-# 
-# for(b in benchmarks){
-#     
-#     print(glue::glue("Bootstrap {i} - Items {ni} - Benchmark {b}"))
-#     tic("Total Iteration Time")
-#     
-#     # Load Data
-#     data_wide = make_sample_response(
-#       hilo_splits,
-#       benchdf,
-#       b = b,
-#       items = benchdf |> filter(benchmark==b) |> pull(item) |> unique(),
-#       samp = "test",
-#     ) |> as.data.frame()
-#     
-#     testreldf = create_sample_metadata(data_wide,iter = length(relfits)+1) |> 
-#       mutate(boot = i)
-#     
-#     # # IRT Modeling
-#     # mirt_results = mirt_fits(
-#     #   data_wide = data_wide,
-#     #   theta_range = c(-9,9),
-#     #   irts = c("2PL"),
-#     #   val_test_set = T,
-#     #   samp = "boot",
-#     #   sampmeta = sampmeta
-#     # )
-#     
-#     
-#     testreldf = testreldf |> left_join(HiZi_est(data_wide),by="item")
-#     
-#     tic("alpha")
-#     testreldf = suppressMessages(
-#       tryCatch({
-#         testreldf |> left_join(get_alpha(data_wide),by="item")
-#       },
-#       error = function(e){
-#         testreldf
-#       })
-#     )
-#     toc()
-#     # testreldf = testreldf |> left_join(get_all_omegadf(data_wide,nf=3),by="item")
-#     
-#     # testreldf = testreldf |> left_join(get_pc_loading(data_wide,nfactors=3),by="item")
-#     
-#     testreldf = testreldf |> left_join(feols_estimations(make_feols_df(data_wide)),by="item")
-#     
-#     testreldf = testreldf |> left_join(create_cortab(cor(data_wide |> 
-#                                                    select(-model)) |> 
-#                                                as_tibble(rownames="item") |> 
-#                                                pivot_longer(-item, 
-#                                                             names_to = "itemx",
-#                                                             values_to = "rho")),
-#                                by="item")
-#     
-#     testreldf = testreldf |> left_join(MS_est(data_wide),by="item")
-#     
-#     if(exists("item_similarity_enhanced")){
-#       testreldf = testreldf |> left_join(get_bonus_metrics(data_wide |> select(-model)),by="item")
-#     }
-#     
-#     testrelfits[[length(testrelfits)+1]] = list(
-#       
-#       testreldf = testreldf
-#       # irtdf = irtdf,
-#       # thtdf = thtdf |> bind_rows(),
-#       # irt_models = tempirtfits,
-#       # itdf = itdfs |> bind_rows(),
-#       # moddf = moddfs |> bind_rows()
-#     )
-#     toc()    
-#     
-#     
-#     saveRDS(testrelfits , here::here("benchmark_reliability", "data","results",
-#                                      "boots",glue::glue("itemfit_testrel_boot_{today()}.rds"))) 
-#     
-#     toc()
-#     gc()
-#     
-#     
-#   
-# }
-# irdf_test = map(testrelfits,
-#            \(x) x$testreldf, # |> 
-#            # full_join(
-#            #   x$itdf |> 
-#            #     filter(irt%in% c("2PL")) |>
-#            #     select(item,irt, any_of(c("a","b",# "g",
-#            #                               "infit","outfit",
-#            #                               "z.infit","z.outfit",
-#            #                               "X2","split","val_test_set",
-#            #                               "Zh","G2"
-#            #     )),
-#            #     ) |> distinct(),
-#            #   by = c("item")
-#            # ), 
-#            .progress = T) |> 
-#   list_rbind(names_to = "iter_grp") |> 
-#   mutate(CA = (r_rest)^2/alpha_rest,
-#          across(any_of(c("cor2", "ar2","r2","pr2" ,"apr2" ,"wr2","war2" ,"wpr2" , "wapr2" )),
-#                 \(x) 1 - (1-x)/i_var, .names = "{.col}_pgl6"), # pseudo GL6
-#          DI_g6 = (r_rest)^2/g6_rest,
-#          DI_std = (r_rest)^2/alpha_rest_std,
-#   )  |> 
-#   rename(L6 = r2, D_L6 = intercept, 
-#          itcor = raw_r,
-#          itcor_std = std_r,
-#          ctt_disc = r_rest, ## corrected item-total correlation
-#          # ctt_disc = r_rest, 
-#          obsr2 = meanobsr2) |> 
-#   replace_inf() |> 
-#   select(-any_of(c("aic","bic","rmse","sigma","irt"))
-#   ) |> distinct() |> 
-#   group_by(iter,iter_grp,benchmark) |> 
-#   mutate( #n_items = n_distinct(item),
-#     nvali = n_distinct(item,na.rm=T)-sum(is.na(cor2))
-#   ) |> ungroup()|> 
-#   mutate(n_valmods = round(nobs/ni),
-#          n_models = if_else(is.na(nmods),n_valmods,nmods), 
-#          valid_item = !is.na(cor2)
-#   ) |> 
-#   group_by(item) |> 
-#   mutate(countvalid = sum(valid_item)) |> ungroup() |>   
-#   select(iter,benchmark,item,iter_grp,
-#          n_iobs:ni,any_of(c("nobs","valid_n","n_valmods")),
-#          nvali:countvalid,
-#          split,
-#          L6,MS,CA,
-#          # G2,D,itcor,
-#          everything(),-any_of(c("aic","bic","rmse","sigma","irt"))
-#   ) |> distinct() |> 
-#   mutate(iter=glue("{ifelse(ordered_models,'hilo','rand')}_long_{iter}")) |> 
-#   select(iter, everything())
-# 
-# saveRDS(irdf_test , here::here("benchmark_reliability", "data","results","boots",glue::glue("itemfit_testrel_boot_{today()}.rds")))
-# 
-# 
 
 
