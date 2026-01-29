@@ -69,9 +69,60 @@ for(b in tempdf$benchmark |> unique()){
   gc()
 }
 
-remodfits = list_rbind(remodfits,names_to="benchmark")
+remodfits = list_rbind(remodfits)
 remodfits |> saveRDS(here::here("data",glue::glue("item_lmer_reliab_{nb_items_per}.rds")))
 remodfits = readRDS(here::here("data",glue::glue("item_lmer_reliab_{nb_items_per}.rds")))
+
+# nb_items_per = 712
+
+
+
+expand_grid(num_items = c(1:20,25,30,40,50,75,100,125,250,500,750,1000),
+            num_mods = c(1:20,25,30,40,50,75,100,125,250,500,750,1000),
+            benchmark = unique(all_dstudydf$benchmark)) |> 
+  right_join(
+    remodfits |> select(-pct) |> 
+      pivot_wider(names_from = grp, 
+                  values_from = vcov),
+    by = "benchmark",multiple = "all",
+    relationship = "many-to-many") |>
+  mutate(num_item =1,
+         num_mod = 1, i_rel = item / (item + model + Residual),
+         m_dep = model / (item + model + Residual) ,
+         m_rel = model / ( model + Residual),
+         m_snr = m_rel / (1 - m_rel),
+         i_snr = i_rel / (1 - i_rel),
+         m_rel_D =  model / ( model + Residual/(num_items*num_mod)),
+         i_rel_D = item / ( item + Residual/(num_item*num_mods)),
+         m_snr_D = m_rel_D / (1 - m_rel_D),
+         i_snr_D = i_rel_D / (1 - i_rel_D),
+         m_errtol_D = sqrt((1 - m_rel_D) / m_rel_D),
+         i_errtol_D = sqrt((1 - i_rel_D) / i_rel_D), 
+  ) |> left_join(item_counts, by = "benchmark"
+  ) |> mutate(prop_items = num_items/n
+  ) |> filter(num_items <300) |> 
+  ggplot(aes(x = num_items, y = m_rel_D, color=benchmark,linetype=benchmark)) + 
+  geom_hline(yintercept = 0.9, linewidth=0.4, color = "darkred") + 
+  geom_line(linewidth=1) + 
+  theme_minimal() + 
+  # scale_linetype_manual(values = c("dotted",rep("solid",500))) +
+  # ggthemes::scale_color_colorblind() + 
+  scale_linetype_manual(values = c(rep(c("solid","dashed"),500))) +
+  labs(title = "Estimated Rank-order Reliability vs. Number of Items", 
+       x = "Number of Items", 
+       y = "Estimated Model Rank-order Reliability") + 
+  # guides(
+  #   color = guide_legend(ncol=6),
+  #   linetype = guide_legend(ncol=6)
+  #                        # override.aes = list(linewidth =0.5)
+  #   ) +
+  theme(legend.position = "bottom", 
+        legend.title = element_blank(),
+        text = element_text(family = "times")) 
+
+# + 
+#   facet_wrap(~benchmark,nrow=2)
+
 
 n_d_study = 200 ## to get gpqa, need to turn up number of items to 325 to get above 0.7 reliability
 remodfits |> select(-pct) |> 
