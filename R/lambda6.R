@@ -1,5 +1,4 @@
-#' @title L6^{star} Novel and Efficient Estimation Guttman's Lambda 6 Components 
-
+#' @title L_{star} Novel and Efficient Estimation Guttman's Lambda 6 Inspired Item-level Components 
 
 library(data.table)
 library(fixest)
@@ -8,9 +7,11 @@ library(future.apply)
 
 #' Efficiently Estimate Guttman's Lambda 6 Components
 #'
-#' This function performs a series of regressions required for calculating Guttman's 
+#' This function performs a series of regressions required for calculating 
+#' a new version of Guttman's 
 #' Lambda 6. For each item in a wide-format response matrix, it regresses the item 
-#' on all other items, using a complex fixed-effect structure with random slopes.
+#' on all other items, using a sophisticated fixed-effect structure which only
+#' is activated through random slopes.
 #'
 #' The implementation is highly optimized for speed and memory efficiency by:
 #' 1. Using a data.table backend.
@@ -122,15 +123,7 @@ L6_est <- function(wide_dt, n_workers = NULL) {
       item = target_item,
       nobs = fit$nobs,
       L6 = r2_vals$r2,
-      ar2 = r2_vals$ar2, # other R2 types (see documentation)
-      wr2 = r2_vals$wr2,
-      war2 = r2_vals$war2,
-      cor2 = r2_vals$cor2,
-      wapr2 = r2_vals$wapr2,
-      wpr2 = r2_vals$wpr2,
-      pr2 = r2_vals$pr2,
-      meanscores = fmean((fit$scores),na.rm=T),
-      meanobsr2 = fmean((fit$scores)^2,na.rm=T),
+
       intercept = ct["(Intercept)", "Estimate"],
       intercept_se = ct["(Intercept)", "Std. Error"]
     )
@@ -147,4 +140,3 @@ L6_est <- function(wide_dt, n_workers = NULL) {
   message("Estimation complete.")
   return(final_results)
 }
-
