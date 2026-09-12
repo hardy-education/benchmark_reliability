@@ -277,7 +277,7 @@ dstudy_project <- function(components, n_items, n_models = 1L) {
 
       # --- the same, with items as the object of measurement
       i_rel_D     = item / (item + Residual / n_models),
-      i_dep_D     = item / (item + model / n_models + Residual / (n_models * n_items)),
+      i_dep_D     = item / (item + model / n_models + Residual / n_models),
       i_rel_scale = (item / n_items) /
         (item / n_items + Residual / (n_items * n_models)),
       i_dep_scale = (item / n_items) /
