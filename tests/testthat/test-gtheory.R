@@ -145,3 +145,16 @@ test_that("the dependability _scale coefficients do depend on model count", {
   expect_gt(one$m_dep_scale, many$m_dep_scale)
   expect_equal(one$m_dep_scale, one$m_dep_D)
 })
+
+test_that("i_dep_D does not depend on the item count", {
+  # Items are the object of measurement and are not averaged over, so the
+  # absolute error variance is sigma_M^2/n_models + sigma_e^2/n_models, with
+  # no 1/I term. Compare i_rel_D, which likewise carries no n_items divisor.
+  comp <- gstudy_coefficients(0.0039, 0.0254, 0.1951, "b")
+  vals <- vapply(c(1L, 10L, 1000L),
+                 function(ni) dstudy_project(comp, n_items = ni,
+                                             n_models = 4)$i_dep_D,
+                 numeric(1))
+  expect_equal(vals, rep(vals[1], 3))
+  expect_equal(vals[1], 0.0254 / (0.0254 + 0.0039 / 4 + 0.1951 / 4))
+})
