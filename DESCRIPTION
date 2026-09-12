@@ -44,11 +44,11 @@ Imports:
     stringr,
     tibble,
     tictoc,
-    tidyr
-Suggests:
+    tidyr,
     cowplot,
-    ggmirt,
     ggpubr,
-    ggrepel,
+    ggrepel
+Suggests:
+    ggmirt,
     testthat (>= 3.0.0)
 Config/testthat/edition: 3
