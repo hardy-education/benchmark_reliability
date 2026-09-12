@@ -49,7 +49,7 @@ scripts/                 the pipeline, one stage per file
   50_facet_gstudy.R      Open LLM metadata facet G-study
   60_figures.R           figures and Table 1
 
-tests/testthat/          92 unit tests, mostly over the paper's identities
+tests/testthat/          45 tests (112 assertions) over the paper's identities
 legacy/                  the pre-refactor scripts, kept for reference
 data/                    inputs and results (git-ignored; see data/README.md)
 figures/                 figure output
@@ -122,7 +122,7 @@ already exists, so an interrupted run resumes rather than restarting.
 make test
 ```
 
-92 tests. Most check the paper's identities directly rather than comparing
+45 tests, 112 assertions. Most check the paper's identities directly rather than comparing
 against stored numbers — that `G ↔ SNR ↔ E[τ]` round-trips, that relative
 reliability is invariant to item variance while dependability is not, that the
 D-study curve follows the 1/I law, that λ⋆₆ stays informative when M ≪ I and

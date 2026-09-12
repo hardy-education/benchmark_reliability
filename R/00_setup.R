@@ -93,6 +93,9 @@ br_plan <- function(workers = NULL, strategy = "auto") {
     }
   }
   if (workers <= 1L) strategy <- "sequential"
+  # A sequential plan has exactly one worker regardless of what was requested,
+  # so report that rather than the requested count.
+  if (identical(strategy, "sequential")) workers <- 1L
   message(glue("Parallel backend: {strategy} with {workers} worker(s)."))
   switch(strategy,
     multicore    = future::plan(future::multicore, workers = workers),

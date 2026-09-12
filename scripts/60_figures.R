@@ -30,6 +30,14 @@ WANTED <- {
 }
 want <- function(x) x %in% WANTED
 
+# Figure 2 and Table 1 each fit a full-data G-study per benchmark, which on
+# mmlu_pro alone is a mixed model over five million rows. `--benchmarks` limits
+# them, so the figure code can be exercised without committing to the full run.
+ONLY_BENCHMARKS <- {
+  v <- strsplit(opt("benchmarks", ""), ",")[[1]]
+  if (!length(v)) NULL else v
+}
+
 br_init_dirs()
 
 # --- Inputs -------------------------------------------------------------------
@@ -39,7 +47,7 @@ latest <- function(pattern, dir = BR_BOOTS) {
   sort(f, decreasing = TRUE)[1]
 }
 
-responses <- load_responses()
+responses <- load_responses(benchmarks = ONLY_BENCHMARKS)
 splits    <- make_hilo_splits(responses)
 
 model_counts <- splits |>
@@ -75,6 +83,8 @@ if (want("2")) {
   # Full-benchmark variance components, then the D-study curve of Eq. (3). The
   # curve is truncated per benchmark at its own item count, which is why some
   # lines stop earlier than others.
+  message(glue("Fitting {n_unique(responses$benchmark)} full-data G-studies; ",
+               "this is the slow part of stage 60."))
   components <- purrr::map(unique(responses$benchmark), function(b) {
     fit_gstudy(responses |> dplyr::filter(benchmark == b) |> tidyr::drop_na())
   }) |>

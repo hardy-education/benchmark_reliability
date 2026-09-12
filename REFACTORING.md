@@ -221,7 +221,7 @@ that do.
   modules, and anything that sourced `R/*.R` wholesale would execute the entire
   old pipeline — data load, bootstrap loops and all — as a side effect of
   loading functions. `R/load_all.R` matches only `NN_*.R`.
-- **92 unit tests added.** There were none.
+- **45 tests (112 assertions) added.** There were none.
 
 ## Not addressed
 
