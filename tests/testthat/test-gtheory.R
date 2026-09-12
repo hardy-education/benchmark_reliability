@@ -114,3 +114,34 @@ test_that("fit_gstudy recovers known variance components", {
   # And the reliability implied by those components.
   expect_equal(fit$m_rel, 0.05 / (0.05 + 0.10), tolerance = 0.15)
 })
+
+test_that("the relative _scale coefficients are identical to the _D ones", {
+  # Dividing numerator and denominator of the relative coefficient by the
+  # number of models cancels, so m_rel_scale == m_rel_D and i_rel_scale ==
+  # i_rel_D by construction, for any design size. The original code carried
+  # both pairs as if they differed. The dependability pair genuinely does
+  # differ, and that is checked below.
+  comp <- rbind(
+    gstudy_coefficients(0.01, 0.05, 0.20, "b1"),
+    gstudy_coefficients(0.30, 0.02, 0.90, "b2")
+  )
+  for (nm in c(1L, 7L, 250L)) {
+    for (nmod in c(1L, 13L, 400L)) {
+      proj <- dstudy_project(comp, n_items = nm, n_models = nmod)
+      expect_equal(proj$m_rel_scale, proj$m_rel_D,
+                   info = glue("n_items = {nm}, n_models = {nmod}"))
+      expect_equal(proj$i_rel_scale, proj$i_rel_D,
+                   info = glue("n_items = {nm}, n_models = {nmod}"))
+    }
+  }
+})
+
+test_that("the dependability _scale coefficients do depend on model count", {
+  comp <- gstudy_coefficients(0.05, 0.10, 0.30, "b")
+  one  <- dstudy_project(comp, n_items = 50, n_models = 1)
+  many <- dstudy_project(comp, n_items = 50, n_models = 100)
+  # More models means the item term is charged relatively more heavily against
+  # the averaged signal, so dependability falls.
+  expect_gt(one$m_dep_scale, many$m_dep_scale)
+  expect_equal(one$m_dep_scale, one$m_dep_D)
+})

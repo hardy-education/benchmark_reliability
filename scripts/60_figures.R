@@ -79,13 +79,21 @@ if (want("2")) {
     fit_gstudy(responses |> dplyr::filter(benchmark == b) |> tidyr::drop_na())
   }) |>
     purrr::list_rbind() |>
-    dplyr::left_join(benchmark_summary(responses), by = "benchmark")
+    dplyr::left_join(
+      # Renamed on the way in: `dstudy_project()` creates its own `n_items`
+      # column for the projected design size, and letting the two share a name
+      # leaves the truncation below depending on a `.x`/`.y` join suffix.
+      benchmark_summary(responses) |>
+        dplyr::select(benchmark, items_available = n_items),
+      by = "benchmark"
+    )
 
   grid <- c(1:20, 25, 30, 40, 50, 75, 100, 125, 250, 500, 750, 1000,
             2500, 5000, 12000)
+  # A benchmark's curve stops at its own item count -- you cannot project a
+  # design onto more items than the benchmark has.
   curve <- dstudy_curve(components, grid) |>
-    dplyr::filter(n_items <= n_items.y | is.na(n_items.y)) |>
-    dplyr::filter(benchmark %in% FIGURE_BENCHMARKS | TRUE)
+    dplyr::filter(is.na(items_available) | n_items <= items_available)
 
   br_save_figure(plot_reliability_vs_items(curve),
                  "fig2_reliability_vs_items", width = 10, height = 6)

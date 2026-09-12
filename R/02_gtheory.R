@@ -236,6 +236,20 @@ gstudy_na_row <- function(benchmark = NA_character_) {
 #'   models*, which divides every component by `n_models`. Named `*_Scale` in the
 #'   original plotting code.
 #'
+#' Note that `m_rel_scale` is **algebraically identical** to `m_rel_D`, and
+#' `i_rel_scale` to `i_rel_D`: dividing numerator and denominator of the
+#' relative coefficient by `n_models` cancels,
+#'
+#'   (sigma_M^2/n_M) / (sigma_M^2/n_M + sigma_e^2/(I n_M))
+#'     = sigma_M^2 / (sigma_M^2 + sigma_e^2/I).
+#'
+#' The `n_models` divisor only bites for the *dependability* coefficients, where
+#' the item term is not divided by `n_models` and so does not cancel. Both pairs
+#' of names are kept because the saved result files and the original plotting
+#' code use them, but the relative pair carries no independent information --
+#' `tests/testthat/test-gtheory.R` asserts the identity so the two cannot be
+#' changed apart by mistake.
+#'
 #' @param components Data frame with columns `model`, `item`, `Residual`.
 #' @param n_items Number of items in the projected design.
 #' @param n_models Number of models in the projected design.

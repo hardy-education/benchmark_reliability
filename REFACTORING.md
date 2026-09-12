@@ -132,6 +132,42 @@ Ordered roughly by consequence.
     carried dead initialisation (`result_list <- vector(...)`, `i <- 1L`) that
     the `future_lapply` assignment immediately overwrote.
 
+## Redundancy found in the reported quantities
+
+`plot_all_code.R` computed two families of D-study coefficient per row, `*_D`
+and `*_Scale`, differing in whether the components are also divided by the
+number of models. For the **relative** (ranking) coefficients the divisor
+cancels:
+
+```
+(sigma_M^2 / n_M) / (sigma_M^2 / n_M + sigma_e^2 / (I n_M))
+  = sigma_M^2 / (sigma_M^2 + sigma_e^2 / I)
+```
+
+so `m_rel_Scale` is identically equal to `m_rel_D`, and `i_rel_Scale` to
+`i_rel_D`, for every design size. The two were carried and plotted as if they
+were different quantities. Only the **dependability** pair genuinely differs,
+because the item term is not divided by `n_models` and so does not cancel.
+
+Both names are kept, since the saved result files use them, but
+`dstudy_project()` documents the identity and `tests/testthat/test-gtheory.R`
+asserts it — so the pair cannot be edited apart by mistake, and nobody has to
+rediscover that two of the columns carry no independent information.
+
+## A trap worth naming
+
+`dplyr`'s data masking makes one class of mistake invisible: if a function
+parameter shares a name with a column of the data frame being filtered, the
+column wins and the filter silently matches nothing. The reliability frame
+carries a `population` column, so `filter(samp == population)` inside a
+function whose argument is also called `population` compares the column against
+itself and returns zero rows — no error, no warning, just an empty plot.
+
+Every such argument in `R/07_plots.R` is therefore qualified with `.env$`, and
+`plot_selection_panel()` raises an informative error rather than handing an
+empty frame to `ggplot2`, whose message ("Faceting variables must have at least
+one value") points nowhere near the cause.
+
 ## Behaviour that changed deliberately
 
 These produce different results from the originals, and are the only places
