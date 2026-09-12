@@ -57,7 +57,8 @@ item_counts <- aggdf |>
   distinct() |>
   group_by(benchmark) |>
   summarize(n = n())
-mod_counts <- aggdf |>
+mod_counts <- aggdf |> 
+  drop_na() |> 
   select(benchmark, model) |>
   distinct() |>
   group_by(benchmark) |>
@@ -76,6 +77,22 @@ make_hilo_splits <- function(df) {
     mutate(
       med = median(resp, na.rm = T),
       split = if_else(resp <= med, "train", "test")
+    ) |>
+    ungroup() |>
+    drop_na() |>
+    distinct()
+}
+
+
+make_hilo_splits_date <- function(df) {
+  df |>
+    group_by(model, benchmark,upload_to_hub_date) |>
+    summarise(resp = mean(resp, na.rm = T)) |>
+    ungroup() |>
+    group_by(benchmark) |>
+    mutate(
+      med = median(upload_to_hub_date, na.rm = T),
+      split = if_else(upload_to_hub_date <= med, "train", "test")
     ) |>
     ungroup() |>
     drop_na() |>
@@ -160,7 +177,7 @@ checkmtx <- function(df) {
 
 
 create_cortab <- function(corlong) {
-  tic()
+  # tic()
   res <- corlong |>
     group_by(item) |>
     summarize( # p1 = sum(p==1)/n(),
@@ -184,7 +201,7 @@ create_cortab <- function(corlong) {
       cmedse = mad(rho, na.rm = T) / sqrt(n()),
       cmed = median(rho, na.rm = T)
     )
-  toc()
+  # toc()
   res
 }
 
@@ -345,7 +362,7 @@ get_pc_loading <- function(df, replaceval = 0,
 get_alpha <- function(df, replaceval = 0) {
   # Check if the input is a data frame
   df <- checkmtx(df)
-  tic()
+  # tic()
   alpha <- psych::alpha(
     df |> select(-any_of(c("model", "id"))) |>
       naniar::replace_na_with(replaceval),
@@ -353,7 +370,7 @@ get_alpha <- function(df, replaceval = 0) {
     warnings = F,
     use = "pairwise.complete.obs"
   )
-  toc()
+  # toc()
   inner_join(alpha$item.stats |> as_tibble(rownames = "item"),
     alpha$alpha.drop |> as_tibble(rownames = "item"),
     by = "item"
@@ -1079,6 +1096,7 @@ mirt_fits <- function(data_wide,
   } else {
     irtdf <- tibble()
   }
+  toc()
 
   return(list(
     irt_models = tempirtfits,
@@ -1693,7 +1711,7 @@ if(rerunitemsamples){
   print(glue::glue("Preparing item samples for n={nitems_for_gstudy}"))
   tic(glue::glue("n={nitems_for_gstudy}"))
   validbenches = item_counts |> 
-      filter(n > nitems_for_gstudy) |> 
+      # filter(n > nitems_for_gstudy) |> 
       pull(benchmark)
   item_samples = item_samples_base |>
     filter(metric %in% c(metrics_for_study,rand_metrics)) |>

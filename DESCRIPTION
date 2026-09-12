@@ -1,0 +1,54 @@
+Package: benchmarkreliability
+Title: Benchmarks as Measurement Instruments: Signal, Noise, and Rank Stability
+Version: 1.0.0
+Authors@R:
+    person("Michael", "Hardy", role = c("aut", "cre"))
+Description: Analysis code for "Benchmarks as Measurement Instruments:
+    Quantifying Signal and Noise for More Efficient AI Evaluations Under
+    Distribution Shift". Recasts AI benchmark reliability as a signal-to-noise
+    ratio from a crossed random-effects variance decomposition, maps variance
+    components to expected rank concordance, introduces the lambda*_6
+    item-level reliability proxy for the many-items/few-models regime, and
+    evaluates reliability under positive distribution shift of the evaluated
+    model population.
+License: MIT + file LICENSE
+Encoding: UTF-8
+URL: https://github.com/hardy-education/benchmark_reliability
+Depends:
+    R (>= 4.2)
+Imports:
+    collapse,
+    data.table,
+    dplyr,
+    fixest,
+    forcats,
+    furrr,
+    future,
+    future.apply,
+    ggplot2,
+    ggthemes,
+    glue,
+    here,
+    janitor,
+    lme4,
+    lmerTest,
+    mirt,
+    mokken,
+    naniar,
+    parameters,
+    pcaPP,
+    psych,
+    purrr,
+    readr,
+    rlang,
+    stringr,
+    tibble,
+    tictoc,
+    tidyr
+Suggests:
+    cowplot,
+    ggmirt,
+    ggpubr,
+    ggrepel,
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3
