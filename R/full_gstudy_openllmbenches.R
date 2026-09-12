@@ -8,8 +8,8 @@
 # characteristics and their interactions.
 # ==============================================================================
 
-library(parallel)
-library(data.table)
+# library(parallel)
+# 
 library(glue)
 library(mirt)
 library(psych)
@@ -34,6 +34,7 @@ library(broom)
 library(furrr)
 library(future)
 library(parallel)
+library(data.table)
 library(fastverse)
 fastverse_extend(
   Rfast, dtplyr,
@@ -87,6 +88,67 @@ metadf <- read_csv(here::here("data", "openllm_all_model_info_full.csv")) |>
     sft = as.numeric(t == "🔶")
   ) |>
   select(model, everything())
+
+
+# base random effect model no abbreviations ---------
+tic()
+m1 <- metadf |>
+  pivot_longer(c(if_eval, bbh, mmlu_pro, math_lvl_5, gpqa, musr), names_to = "bench", values_to = "val") |>
+  filter(!is.na(log_nbpars)) |>
+  mutate(not_avail = as.numeric(!available_on_the_hub)) |>
+  lmer(
+    formula = val ~ 1
+    + (1 | bench)
+    + (1 | base)
+    + (1 | author)
+    + (1 | type:chat_template:mo_e:merged:precision)
+    + (1 | bench:base)
+    + (1 | bench:author)
+    + (1 | bench:type:chat_template:mo_e:merged:precision)
+    + (1 | base:author)
+    + (1 | base:type:chat_template:mo_e:merged:precision)
+    + (1 | author:type:chat_template:mo_e:merged:precision)
+    + (1 | bench:base:type:chat_template:mo_e:merged:precision)
+    + (1 | author:base:type:chat_template:mo_e:merged:precision)
+    + (1 | bench:author:type:chat_template:mo_e:merged:precision)
+    + (1 | bench:base:author),
+    data = _,
+    na.action = na.exclude,
+    control = lmerControl(
+      optimizer = "bobyqa", # "Nelder_Mead",bobyqa
+      calc.derivs = FALSE
+    )
+  )
+summary(m1)
+
+m1_summary <- m1 |>
+  VarCorr() |>
+  janitor::clean_names() |>
+  as_tibble() |>
+  filter(is.na(var2)) |>
+  mutate(
+    pct = round(vcov / sum(vcov) * 100, 2),
+    bench = str_detect(grp, "bench"),
+    base = str_detect(grp, "base|arch"),
+    auth = str_detect(grp, "author|contrib"),
+    type = str_detect(grp, "type|tune"),
+    resid = grp == "Residual",
+    npar = var1 == "log_parms",
+    npar = replace_na_with(npar, 0),
+    base_type = base & type,
+    base_type_bench = base_type & bench,
+    across(bench:base_type_bench, \(x) vcov * as.numeric(x))
+  )
+
+saveRDS(
+  list(
+    mod = m1,
+    sum_tab = m1_summary
+  ),
+  file = here::here("data", "results", "m1_base_.rds")
+)
+toc()
+
 
 
 
