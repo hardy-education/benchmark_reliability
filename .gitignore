@@ -49,7 +49,11 @@ po/*~
 rsconnect/
 
 # Local files and folders
-data
+# The data directory holds ~40 MB of inputs and all pipeline results, none of
+# which belong in history -- but its README documents provenance and checksums
+# and must be tracked.
+data/*
+!data/README.md
 .DS_Store
 
 # --- Added during the 2026 refactor -------------------------------------------
