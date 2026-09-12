@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+title: "Benchmarks as Measurement Instruments: Quantifying Signal and Noise for More Efficient AI Evaluations Under Distribution Shift"
+message: "If you use this software or the reliability framework it implements, please cite the paper."
+type: software
+authors:
+  - family-names: Hardy
+    given-names: Michael
+    affiliation: Stanford University
+repository-code: "https://github.com/hardy-education/benchmark_reliability"
+license: MIT
+keywords:
+  - AI evaluation
+  - benchmark reliability
+  - generalizability theory
+  - psychometrics
+  - variance components
+  - distribution shift
+preferred-citation:
+  type: article
+  title: "Benchmarks as Measurement Instruments: Quantifying Signal and Noise for More Efficient AI Evaluations Under Distribution Shift"
+  authors:
+    - family-names: Hardy
+      given-names: Michael
+  year: 2026
+  notes: "Under review."
