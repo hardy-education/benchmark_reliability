@@ -1682,6 +1682,7 @@ item_samples_base <- adf |>
     ) / (4 * n())
   ) |>
   ungroup() |>
+  select(any_of(c("benchmark","item",metrics_for_study,rand_metrics))) |> 
   pivot_longer(cols = any_of(c(metrics_for_study, rand_metrics)), names_to = "metric", values_to = "est") |>
   mutate(
     est = if_else(metric %in% c(
@@ -1693,11 +1694,14 @@ item_samples_base <- adf |>
 
 
 metrics_for_study <- c(
-  "L6", "MS", "CA", "Hi", "Zi", "a",
-  "snr_alpha", "ctt_disc",
-  "G2",
-  "itcor",
-  "cralpha_rv",
+  "L6", "MS", "CA", "Hi", 
+  # "Zi", 
+  "a",
+  # "snr_alpha", 
+  # "ctt_disc",
+  # "G2",
+  # "itcor",
+  # "cralpha_rv",
   "diff"
 )
 
@@ -1772,6 +1776,8 @@ corrstudydf |> saveRDS(here::here("benchmark_reliability/data/results/boots",
 gc()
 
 
+corrstudydf = readRDS(here("benchmark_reliability/data/results/boots/item_inc_gt3val_corrtudydf_reduce_metrics_Reduced_2026-09-08.rds"))
+
 # randomly selected models replication ------
 tic()
 
@@ -1786,7 +1792,11 @@ toc()
 
 
 tic()
-corrstudydf_rand = cumulative_kendall_by_metric(benchranddf ,item_samples_base |> rename(estimate = est),max_items = 500)
+corrstudydf_rand = 
+  cumulative_kendall_by_metric(benchranddf ,
+                               item_samples_base |> 
+                                 rename(estimate = est),
+                               max_items = 500)
 toc()
 
 
