@@ -49,7 +49,7 @@ parse_flags <- function(args = commandArgs(trailingOnly = TRUE), defaults = list
     val <- if (length(kv) < 2) TRUE else paste(kv[-1], collapse = "=")
     if (is.character(val) && grepl(",", val, fixed = TRUE)) val <- strsplit(val, ",", fixed = TRUE)[[1]]
     if (is.character(val) && length(val) == 1 && grepl("^-?[0-9.]+$", val)) val <- as.numeric(val)
-    if (is.character(val) && length(val) == 1 && val %in% c("TRUE", "FALSE")) val <- as.logical(val)
+    if (is.character(val) && length(val) == 1 && toupper(val) %in% c("TRUE", "FALSE")) val <- as.logical(toupper(val))
     out[[key]] <- val
   }
   out

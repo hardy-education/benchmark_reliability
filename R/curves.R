@@ -30,8 +30,11 @@
 #'   means (needs `pcaPP` for speed; falls back to `stats::cor`).
 #' @param engine `"auto"`: closed form for a complete matrix, `lmer` per step
 #'   otherwise. `"lmer"` forces the legacy per-step fit.
-#' @return `data.table(n_items, var_model, var_item, var_residual, g_rel,
-#'   g_abs, snr_rel, kendall)`.
+#' @return `data.table(n_items, var_model, var_item, var_residual, engine,
+#'   status, kendall, g_rel, g_abs, snr_rel)`. `status` is as in
+#'   [variance_components()]; prefixes with no regular REML fit (zero
+#'   residual, e.g. a handful of models answering every selected item
+#'   identically) have NA components and NA reliability.
 reliability_curve <- function(X, order, steps = NULL, kendall = TRUE, engine = c("auto", "lmer")) {
   engine <- match.arg(engine)
   .check_matrix(X)
@@ -44,24 +47,33 @@ reliability_curve <- function(X, order, steps = NULL, kendall = TRUE, engine = c
 
   if (engine == "auto" && !anyNA(Xo)) {
     # Uncentred prefix totals are exact for 0/1 data, so tied models stay tied
-    # (Kendall's tau-b depends on ties). The sums of squares use centred values,
-    # which keeps them well conditioned; centring a prefix total is a shift.
-    mu <- mean(Xo)
+    # (Kendall's tau-b depends on ties) and the prefix sums of squares are
+    # exact integers (see .crossed_ss()): no cancellation, no slightly
+    # negative residuals, and a zero residual is detected exactly.
     Ru <- matrixStats::rowCumsums(Xo)          # M x N prefix totals per model
-    R <- Ru - rep(seq_len(N) * mu, each = M)
-    Xc <- Xo - mu
     n <- steps
-    S <- colSums(R)[n]
-    ssq <- cumsum(colSums(Xc^2))[n]
-    c2 <- cumsum(colSums(Xc)^2)[n]
-    r2 <- colSums(R^2)[n]
-    corr <- S^2 / (M * n)
-    ssm <- r2 / n - corr
-    ssi <- c2 / M - corr
-    ssr <- (ssq - corr) - ssm - ssi
-    vc <- .balanced_reml(ssm, ssi, ssr, rep(M, length(n)), n)
+    exact <- .is_integer_valued(Xo)
+    if (exact) {
+      ss <- .crossed_ss(sx2 = cumsum(colSums(Xo^2))[n], sr2 = colSums(Ru^2)[n],
+                        sc2 = cumsum(colSums(Xo)^2)[n], tot = colSums(Ru)[n], M = M, I = n, exact = TRUE)
+      exact <- ss$exact
+    }
+    if (!exact) {
+      # Non-integer data: centre first so the subtraction is well conditioned,
+      # clamp at zero, and treat residuals below 1e-10 of the total as zero.
+      mu <- mean(Xo)
+      R <- Ru - rep(seq_len(N) * mu, each = M)
+      Xc <- Xo - mu
+      S <- colSums(R)[n]
+      corr <- S^2 / (M * n)
+      ssm <- colSums(R^2)[n] / n - corr
+      ssi <- cumsum(colSums(Xc)^2)[n] / M - corr
+      ssr <- (cumsum(colSums(Xc^2))[n] - corr) - ssm - ssi
+      ss <- list(ssm = pmax(ssm, 0), ssi = pmax(ssi, 0), ssr = pmax(ssr, 0))
+    }
+    vc <- .balanced_reml(ss$ssm, ss$ssi, ss$ssr, M, n, tol = if (exact) 0 else 1e-10)
     out <- data.table::data.table(n_items = n, var_model = vc$var_model, var_item = vc$var_item,
-                                  var_residual = vc$var_residual, engine = "anova")
+                                  var_residual = vc$var_residual, engine = "anova", status = vc$status)
     if (kendall) out[, kendall := .prefix_kendall(Ru[, n, drop = FALSE], Ru[, N])]
   } else {
     out <- data.table::rbindlist(lapply(steps, function(n) variance_components(Xo[, seq_len(n), drop = FALSE], engine = "lmer")))

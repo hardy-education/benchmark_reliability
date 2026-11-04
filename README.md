@@ -29,7 +29,7 @@ precision; see [`docs/closed_forms.md`](docs/closed_forms.md). In practice:
 
 ```bash
 make deps        # install R packages
-make test        # 34 tests: closed forms vs. reference packages
+make test        # closed forms vs. fixest, mokken, psych, lme4 and a numerical REML optimiser
 make all         # stages 1-6 for all 18 benchmarks; about 30 min with 2PL on one core (6-7 min with WORKERS=8), under 2 min without
 ```
 
@@ -52,9 +52,11 @@ analysis/               the pipeline; every stage takes --flags and skips finish
   01_item_metrics.R     item selection values per benchmark x reference population
   02_reliability_curves.R  empirical variance decomposition as items are added
   03_population_gstudies.R full-benchmark G-studies and D-study curves by population (Fig. 2)
-  04_figures.R          figures/ from results/
+  04_figures.R          figures/ from results/ (--runs=<ref>__<meas> for one run)
   05_timing_report.R    run-time estimates from the recorded job timings
   06_paper_figures.R    selection figures: core4 panel (all models / top 10%) and appendix figures
+  07_run_diagnostics.R  per-benchmark table to read a run's curves (constant items, ceiling, 2PL convergence, boundaries)
+  99_validate_reml.R    closed-form REML vs lmer on real benchmarks and prefixes (boundary, degenerate, missing cells)
 tests/testthat/         closed forms vs. fixest/mokken/psych/lme4; curve vs. brute force
 docs/                   closed-form derivations, timing results, migration notes
 data_collection/        Python scripts that rebuild the EEE / OpenEval / WABM item-level data from Hugging Face
@@ -83,6 +85,13 @@ Rscript analysis/02_reliability_curves.R --reference=top_frac:0.1 --measured=top
 Rscript analysis/04_figures.R --benchmarks=core4
 ```
 
+Curve figures are smoothed by default (`geom_smooth()` at ggplot2's defaults,
+with its standard-error band). Pass `--smooth=false` to stage 4 or 6, or
+`smooth = FALSE` to `plot_reliability_curves()`, for the raw item-by-item
+curves, which show the noise of each added item; stage 6 writes these with a
+`_raw` suffix. A smooth can extrapolate slightly outside 0–1 at the ends; the
+axis is clipped to 0–1.
+
 ## Using the functions directly
 
 ```r
@@ -95,7 +104,7 @@ X      <- X[, !colnames(X) %in% constant_items(X)]
 l6  <- lambda_star(X)                      # milliseconds
 ord <- selection_order(l6, colnames(X), "lambda_star")
 cv  <- reliability_curve(X, ord)           # G(n), Phi(n), Kendall tau for n = 2..I
-variance_components(X)                     # identical to lmer(resp ~ 1 + (1|item) + (1|model))
+variance_components(X)                     # = lmer(resp ~ 1 + (1|item) + (1|model)), boundaries included; `status` flags them
 ```
 
 To add a selection criterion, write `f(X) -> named numeric vector` (larger =

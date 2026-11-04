@@ -32,7 +32,14 @@ summarise_curves <- function(curves, y = "g_rel") {
 #'   when two populations share a figure).
 #' @param row_by Optional column giving one facet row per value (e.g. a run
 #'   label); benchmarks then become the columns of a `facet_grid()`.
-plot_reliability_curves <- function(curves, y = "g_rel", linetype_by = NULL, ncol = 4, row_by = NULL) {
+#' @param smooth `TRUE` (default) draws each method with `geom_smooth()` at
+#'   ggplot2's defaults (loess below 1,000 points, otherwise a GAM; with its
+#'   standard-error band), fitted on the log-x scale. Points with no regular
+#'   REML fit (NA) are left out of the fit. `FALSE` draws the raw
+#'   item-by-item curves, with the random orders as a mean line and a 95%
+#'   band over draws.
+plot_reliability_curves <- function(curves, y = "g_rel", linetype_by = NULL, ncol = 4, row_by = NULL,
+                                    smooth = TRUE) {
   if (!requireNamespace("ggplot2", quietly = TRUE)) stop("Package 'ggplot2' is required.", call. = FALSE)
   keep_row <- if (!is.null(row_by)) unique(curves[, c(row_by, "reference", "measured"), with = FALSE])
   s <- summarise_curves(curves, y)
@@ -43,13 +50,19 @@ plot_reliability_curves <- function(curves, y = "g_rel", linetype_by = NULL, nco
             kendall = "Kendall τ with full-benchmark ranking")[[y]]
   aes_line <- if (is.null(linetype_by)) ggplot2::aes(n_items, value, colour = label) else
     ggplot2::aes(n_items, value, colour = label, linetype = lt)
+  layers <- if (smooth) {
+    # Random is first averaged over draws (as in the raw plot), then smoothed.
+    list(ggplot2::geom_smooth(ggplot2::aes(fill = label), na.rm = TRUE))
+  } else {
+    list(ggplot2::geom_ribbon(data = s[method == "random"], ggplot2::aes(ymin = lo, ymax = hi, fill = label),
+                              colour = NA, alpha = 0.2, inherit.aes = TRUE, show.legend = FALSE),
+         ggplot2::geom_line(linewidth = 0.6))
+  }
   ggplot2::ggplot(s, aes_line) +
-    ggplot2::geom_ribbon(data = s[method == "random"], ggplot2::aes(ymin = lo, ymax = hi, fill = label),
-                         colour = NA, alpha = 0.2, inherit.aes = TRUE, show.legend = FALSE) +
-    ggplot2::geom_line(linewidth = 0.6) +
+    layers +
     ggplot2::scale_x_log10() +
     ggplot2::scale_colour_manual(values = METHOD_COLOURS, name = "Selection method") +
-    ggplot2::scale_fill_manual(values = METHOD_COLOURS) +
+    ggplot2::scale_fill_manual(values = METHOD_COLOURS, name = "Selection method") +  # same name: one merged legend
     ggplot2::coord_cartesian(ylim = c(0, 1)) +
     (if (is.null(row_by)) ggplot2::facet_wrap(~benchmark, ncol = ncol, scales = "free_x") else
       ggplot2::facet_grid(stats::as.formula(paste(row_by, "~ benchmark")), scales = "free_x")) +

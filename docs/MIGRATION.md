@@ -45,6 +45,12 @@ Sources: `refactoring_code/metric_bootstraps v2.R`, `topk_q_gstudies.R`,
    evaluation on `train`/`test`/`q10`.
 7. **Ties** in population cut-offs are broken by model name, and ties in item
    scores by a seeded random draw. Both make results deterministic.
+8. **Degenerate fits are NA, not G ≈ 1.** When a matrix has zero residual
+   (common for the first few items in a population of 4–9 models), the REML
+   likelihood has no maximiser. Legacy lmer returned σ²_R ≈ 1e-17 and G ≈ 1
+   there; the closed form returns NA components with `status = "degenerate"`
+   (or `"constant"`). Every variance-component row now has a `status` column
+   that names any boundary.
 
 ## Bugs in the legacy code that the new code avoids
 

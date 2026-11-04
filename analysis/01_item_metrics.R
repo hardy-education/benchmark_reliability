@@ -37,4 +37,4 @@ run_job <- function(i) {
   log_msg("done %s | %s: %.1fs", b, ref, sum(attr(im, "timing")$seconds))
 }
 
-invisible(par_map(seq_len(nrow(jobs)), run_job, workers = flags$workers))
+run_jobs(nrow(jobs), run_job, workers = flags$workers, preload = if ("irt_a" %in% methods) "mirt" else character())

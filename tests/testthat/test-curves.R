@@ -43,3 +43,16 @@ test_that("populations have the documented sizes", {
   expect_length(population_models(sc, "b", "top_half"), 20)
   expect_true("m41" %in% population_models(sc, "b", "top_frac:0.1"))
 })
+
+test_that("curve statuses and NA points match per-prefix fits on a tiny population", {
+  # Five models: many prefixes are on the boundary or degenerate.
+  X <- sim_responses(60, 80, seed = 8)[1:5, ]
+  X <- X[, apply(X, 2, var) > 0]
+  ord <- sample(colnames(X))
+  cv <- reliability_curve(X, ord, kendall = FALSE)
+  brute <- data.table::rbindlist(lapply(2:ncol(X), function(n) variance_components(X[, ord[1:n], drop = FALSE], "anova")))
+  expect_equal(cv$status, brute$status)
+  expect_equal(cv$var_model, brute$var_model, tolerance = 1e-10)
+  expect_equal(cv$var_item, brute$var_item, tolerance = 1e-10)
+  expect_true(any(cv$status != "interior"))
+})

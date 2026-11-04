@@ -86,22 +86,102 @@ sign, so an item that runs against the rest of the test can still rank high;
 
 ## Variance components and prefix curves
 
-For a complete M × n matrix, the REML estimates of the crossed model
-`resp ~ 1 + (1|item) + (1|model)` are the ANOVA estimates
+### The REML likelihood of a balanced crossed design
 
-    σ²_M = (MS_M − MS_R)/n,   σ²_I = (MS_I − MS_R)/M,   σ²_R = MS_R.
+For a complete M × n matrix, the REML likelihood of
+`resp ~ 1 + (1|item) + (1|model)` factors into three independent strata, each
+a scaled χ²:
 
-When one of these is negative, REML sets it to zero and pools its sum of
-squares into the residual (`.balanced_reml()`).
+| stratum | df | sum of squares | expected mean square λ |
+|---|---|---|---|
+| models | M − 1 | SS_M | λ_M = σ²_R + n σ²_M |
+| items | n − 1 | SS_I | λ_I = σ²_R + M σ²_I |
+| residual | (M − 1)(n − 1) | SS_R | λ_R = σ²_R |
 
-Along an item order, the prefix sums of squares come from row cumulative sums
-r_m(n):
+    −2 log L_REML = Σ_s [ df_s log λ_s + SS_s / λ_s ] + const.
 
-    SS_M(n) = Σ_m r_m(n)²/n − S(n)²/(Mn),   SS_I(n) = Σ_{j≤n} c_j²/M − S(n)²/(Mn).
+The constraints σ²_M, σ²_I ≥ 0 are λ_R ≤ λ_M and λ_R ≤ λ_I. In the precisions
+τ_s = 1/λ_s the objective is convex (−df log τ + SS τ) and the constraints are
+linear (τ_M ≤ τ_R, τ_I ≤ τ_R). So the KKT conditions identify the unique
+constrained maximiser: a tree-ordered isotonic regression of the mean squares
+(weights df) with the residual stratum at the root.
 
-So all N − 1 prefixes cost a single O(MN) sweep. The empirical relative
-reliability of a complete prefix equals 1 − MS_R/MS_M, which is Cronbach's α
-of the selected items in the measured population.
+`.balanced_reml()` computes it as follows:
+
+1. **No violation** (MS_M ≥ MS_R and MS_I ≥ MS_R): the ANOVA estimates
+   σ²_M = (MS_M − MS_R)/n, σ²_I = (MS_I − MS_R)/M, σ²_R = MS_R.
+2. **One violation**, e.g. MS_M < MS_R: set σ²_M = 0 and re-estimate the
+   residual from the pooled stratum, σ²_R = (SS_M + SS_R)/(df_M + df_R). The
+   remaining component is *re-estimated* against the new residual,
+   σ²_I = (MS_I − σ²_R)/M; it is not just the old moment estimate. The pooled
+   residual lies between MS_M and MS_R, so σ²_I stays ≥ 0.
+3. **Both violated** (MS_M < MS_R and MS_I < MS_R): pool the residual with the
+   stratum of *smaller* mean square first. Pooling lowers the residual, so the
+   other component is checked again. If its mean square now exceeds the
+   pooled residual, that component is **positive**. Only if it still falls
+   below are all three strata pooled, with σ²_M = σ²_I = 0. Pooling with the
+   larger mean square first can never be optimal, because its pooled value
+   exceeds the smaller mean square.
+
+So "both moment estimates negative" does not mean "both components zero".
+For example, MS_I < MS_M < MS_R with MS_M > (SS_I + SS_R)/(df_I + df_R)
+gives σ²_M > 0 and G > 0. Before this was fixed, the code pooled all three
+strata whenever both were negative. That returned G = 0 or a wrong σ²_I
+where lmer did not (`tests/testthat/test-gtheory.R` covers each case;
+`analysis/99_validate_reml.R` checks the real benchmarks).
+
+### Degenerate designs
+
+* **Zero residual** (SS_R = 0, e.g. a handful of models that answer every
+  selected item identically, or two identical item columns): −2 log L → −∞ as
+  σ²_R → 0, so there is no regular maximiser. lmer silently returns
+  σ²_R ≈ 1e-17 and G ≈ 1. These designs get `status = "degenerate"` and NA
+  components.
+* **Constant matrix**: `status = "constant"`, NA components.
+* **Fewer than 2 models or items**: `status = "too_small"`.
+
+Every estimate carries a `status` (`interior`, `boundary_model`,
+`boundary_item`, `boundary_both`, or one of the three above), so plots and
+summaries can show which points rest on a boundary or have no fit.
+
+### Exact sums of squares
+
+For 0/1 (any integer) data, with sx2 = Σx², sr2 = Σ_m r_m², sc2 = Σ_j c_j² and
+grand total T:
+
+    M n SS_M = M sr2 − T²,   M n SS_I = n sc2 − T²,   M n SS_R = M n sx2 − M sr2 − n sc2 + T².
+
+Every term is an integer below 2^53 for all the benchmarks here (the code
+checks), so doubles represent the numerators exactly. The usual
+`ssr <- sum(Xc^2) - ssm - ssi` subtracts nearly equal quantities. When the
+residual is small it can come out slightly negative, or turn an exact tie
+between mean squares into a spurious boundary case; the test suite has a
+3 × 3 matrix where it does. With exact numerators SS_R = 0 is detected
+exactly and is never negative. Non-integer data falls back to centring,
+clamping at zero, and a relative tolerance for "zero residual".
+
+### Prefix curves
+
+Along an item order the same statistics are prefix sums: r_m(n) are row
+cumulative sums, and sx2(n), sc2(n) are cumulative column sums. So all N − 1
+prefixes cost a single O(MN) sweep. `.balanced_reml()` is vectorised over
+prefixes and recycles scalar M against the vector of n explicitly (ragged
+inputs are an error, not NA). For an interior fit the empirical relative
+reliability equals 1 − MS_R/MS_M, which is Cronbach's α of the selected items
+in the measured population. On a boundary it does not: G = 0 when σ²_M = 0,
+and the pooled residual enters when σ²_I = 0.
+
+### Missing cells
+
+With missing cells the row and column effects are no longer orthogonal, the
+cell counts per row and column differ, and the balanced expected mean squares
+do not hold. Adding `na.rm = TRUE` to the sums of squares therefore does not
+give REML or any other valid estimator. `engine = "anova"` refuses incomplete
+matrices; `"auto"` fits lmer to the observed cells, and the curve code does the
+same per prefix. In this data only boolq, legalbench and wikifact have missing
+cells, and stage 2 by default drops the cheaper of incomplete items or models
+first (`handle_missing("auto")`), so the curves themselves use complete
+matrices.
 
 Prefix totals are kept uncentred (exact integers for 0/1 data) when computing
 Kendall's τ-b, because centring introduces floating-point noise that breaks

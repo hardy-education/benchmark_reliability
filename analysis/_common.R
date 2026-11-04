@@ -22,3 +22,18 @@ resolve_methods <- function(x) {
 }
 
 log_msg <- function(...) message(format(Sys.time(), "[%H:%M:%S] "), sprintf(...))
+
+# Run jobs in parallel and stop (non-zero exit) if any failed. A job counts as
+# done only if it returns; an R error or a worker that died (mclapply then
+# delivers NULL) counts as a failure. Packages with compiled code are loaded in
+# the parent first, because loading a DLL inside a forked worker can segfault
+# on macOS, which kills every job.
+run_jobs <- function(n, f, workers, preload = character()) {
+  for (p in preload) if (requireNamespace(p, quietly = TRUE)) loadNamespace(p)
+  res <- par_map(seq_len(n), function(i) { f(i); TRUE }, workers = workers)
+  bad <- which(!vapply(res, isTRUE, NA))
+  for (i in bad) message("job ", i, " failed: ",
+                         if (inherits(res[[i]], "try-error")) as.character(res[[i]]) else "worker died (no result)")
+  if (length(bad)) stop(length(bad), " of ", n, " jobs failed.", call. = FALSE)
+  invisible(res)
+}

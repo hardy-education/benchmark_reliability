@@ -50,4 +50,4 @@ run_job <- function(i) {
   log_msg("done %s | %s: %.1fs", b, tag, elapsed)
 }
 
-invisible(par_map(seq_len(nrow(jobs)), run_job, workers = flags$workers))
+run_jobs(nrow(jobs), run_job, workers = flags$workers, preload = "pcaPP")
