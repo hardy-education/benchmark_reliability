@@ -1,0 +1,5 @@
+# Every function not starting with a dot is exported.
+exportPattern("^[^\\.]")
+import(data.table)
+importFrom(stats, cor, median, quantile, setNames, var)
+importFrom(utils, head)

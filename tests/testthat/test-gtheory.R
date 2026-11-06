@@ -1,160 +1,203 @@
-# Tests for the reliability <-> SNR <-> rank-concordance identities of
-# Sec. 3.1 and App. C. These are the paper's central claims, so they are
-# checked as identities rather than against stored numbers.
+# The closed-form REML must agree with lme4::lmer, including on the boundary.
 
-test_that("G and SNR are inverse transforms (Eq. 5)", {
-  g <- c(0, 0.1, 0.25, 0.5, 0.75, 0.9, 0.99)
-  expect_equal(snr_to_g(g_to_snr(g)), g)
-  snr <- c(0, 0.5, 1, 3, 9, 99)
-  expect_equal(g_to_snr(snr_to_g(snr)), snr)
+lmer_vc <- function(X) {
+  d <- data.frame(resp = as.vector(X), model = factor(rep(seq_len(nrow(X)), ncol(X))),
+                  item = factor(rep(seq_len(ncol(X)), each = nrow(X))))
+  fit <- suppressMessages(lme4::lmer(resp ~ 1 + (1 | item) + (1 | model), data = d,
+                                     control = lme4::lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)))
+  v <- as.data.frame(lme4::VarCorr(fit))
+  c(v$vcov[v$grp == "model"], v$vcov[v$grp == "item"], v$vcov[v$grp == "Residual"])
+}
+
+test_that("anova engine equals lmer REML for interior solutions", {
+  skip_if_not_installed("lme4")
+  X <- sim_responses(60, 40)
+  vc <- variance_components(X, "anova")
+  expect_equal(c(vc$var_model, vc$var_item, vc$var_residual), lmer_vc(X), tolerance = 1e-5)
 })
 
-test_that("known reliability/SNR pairs are correct", {
-  # G = 0.5 <-> SNR = 1; G = 0.9 <-> SNR = 9 (Eq. 5).
-  expect_equal(g_to_snr(0.5), 1)
-  expect_equal(g_to_snr(0.9), 9)
-  expect_equal(snr_to_g(9), 0.9)
+test_that("anova engine equals lmer REML when the model variance hits zero", {
+  skip_if_not_installed("lme4")
+  set.seed(11)
+  X <- matrix(rbinom(40 * 6, 1, rep(c(0.2, 0.4, 0.5, 0.6, 0.7, 0.9), each = 40)), 40, 6,
+              dimnames = list(NULL, paste0("i", 1:6)))  # no model signal
+  vc <- variance_components(X, "anova")
+  expect_equal(vc$var_model, 0)
+  expect_equal(c(vc$var_model, vc$var_item, vc$var_residual), lmer_vc(X), tolerance = 1e-4)
 })
 
-test_that("boundary reliabilities do not produce NaN", {
-  expect_equal(g_to_snr(1), Inf)
-  expect_equal(snr_to_g(Inf), 1)
-  expect_equal(g_to_snr(0), 0)
-  expect_equal(g_to_error_tolerance(1), 0)
-  expect_equal(g_to_error_tolerance(0), Inf)
+test_that("anova engine equals lmer REML when the item variance hits zero", {
+  skip_if_not_installed("lme4")
+  set.seed(12)
+  X <- matrix(rbinom(30 * 8, 1, rep(plogis(rnorm(30, 0, 1.5)), 8)), 30, 8,
+              dimnames = list(NULL, paste0("i", 1:8)))  # no item signal
+  vc <- variance_components(X, "anova")
+  expect_equal(c(vc$var_model, vc$var_item, vc$var_residual), lmer_vc(X), tolerance = 1e-4)
 })
 
-test_that("Greiner's identity and its inverse round-trip (Eqs. 17, 19)", {
-  snr <- c(0.1, 0.5, 1, 3, 9, 49)
-  expect_equal(tau_to_snr(snr_to_expected_tau(snr)), snr)
+test_that("G and Phi follow Eqs. 2-3 and SNR maps round-trip", {
+  vc <- data.table::data.table(var_model = 0.02, var_item = 0.03, var_residual = 0.18, n_items = 50)
+  r <- reliability_coefficients(vc)
+  expect_equal(r$g_rel, 0.02 / (0.02 + 0.18 / 50))
+  expect_equal(r$g_abs, 0.02 / (0.02 + 0.21 / 50))
+  expect_true(r$g_abs <= r$g_rel)
+  expect_equal(snr_to_g(g_to_snr(r$g_rel)), r$g_rel)
+  expect_equal(tau_to_snr(g_to_expected_tau(0.8)), g_to_snr(0.8))
 })
 
-test_that("expected tau matches Greiner's identity at reference points", {
-  # rho = 0   -> tau = 0
-  # rho = 1   -> tau = 1        (2/pi * arcsin(1) = 2/pi * pi/2)
-  # rho = 0.5 -> tau = 1/3      (2/pi * arcsin(1/2) = 2/pi * pi/6)
-  expect_equal(g_to_expected_tau(0), 0)
-  expect_equal(g_to_expected_tau(1), 1)
-  expect_equal(g_to_expected_tau(0.5), 1 / 3)
+test_that("items_needed inverts the D-study (Eq. 5)", {
+  vc <- data.table::data.table(var_model = 0.01, var_item = 0.02, var_residual = 0.2, n_items = 10)
+  n <- items_needed(vc, 0.9)
+  expect_gte(reliability_coefficients(vc, n)$g_rel, 0.9 - 1e-12)
+  expect_lt(reliability_coefficients(vc, n - 1)$g_rel, 0.9)
 })
 
-test_that("expected tau is monotone increasing in SNR", {
-  snr <- 10^seq(-2, 3, length.out = 50)
-  taus <- snr_to_expected_tau(snr)
-  expect_true(all(diff(taus) > 0))
-  expect_true(all(taus >= 0 & taus <= 1))
-})
+# ---------------------------------------------------------------------------
+# Constrained REML: boundary, degenerate and missing-data cases
+# ---------------------------------------------------------------------------
 
-test_that("squared tau is the square of expected tau (Eq. 18)", {
-  snr <- c(0.25, 1, 4, 16)
-  expect_equal(snr_to_expected_tau2(snr), snr_to_expected_tau(snr)^2)
-  # Closed form: (4/pi^2) * arcsin^2(SNR/(1+SNR))
-  expect_equal(snr_to_expected_tau2(snr),
-               (4 / pi^2) * asin(snr / (1 + snr))^2)
-})
+# Sums of squares by the textbook (residual computed directly).
+direct_ss <- function(X) {
+  Xc <- X - mean(X); rm <- rowMeans(Xc); cm <- colMeans(Xc)
+  c(ssm = ncol(X) * sum(rm^2), ssi = nrow(X) * sum(cm^2), ssr = sum((Xc - outer(rm, cm, "+"))^2))
+}
 
-test_that("relative reliability ignores item variance, absolute does not", {
-  # Paper Eq. (2): the item-effect term is common to all models and cannot
-  # reorder them, so G_rel must not depend on it while dependability does.
-  a <- gstudy_coefficients(var_model = 1, var_item = 0.5, var_residual = 1)
-  b <- gstudy_coefficients(var_model = 1, var_item = 5.0, var_residual = 1)
-  expect_equal(a$m_rel, b$m_rel)
-  expect_gt(a$m_dep, b$m_dep)
-  expect_equal(a$m_rel, 0.5)
-})
+# Independent check: maximise the balanced REML likelihood numerically under
+# s2_M, s2_I >= 0. -2 logL = sum_s df_s log(l_s) + SS_s / l_s, with
+# l_M = s2_R + I s2_M, l_I = s2_R + M s2_I, l_R = s2_R.
+reml_deviance <- function(X, p) {
+  M <- nrow(X); I <- ncol(X); ss <- unname(direct_ss(X))
+  df <- c(M - 1, I - 1, (M - 1) * (I - 1))
+  l <- c(p[3] + I * p[1], p[3] + M * p[2], p[3]); sum(df * log(l) + ss / l)
+}
+brute_reml <- function(X) {
+  M <- nrow(X); I <- ncol(X); ss <- unname(direct_ss(X))
+  df <- c(M - 1, I - 1, (M - 1) * (I - 1))
+  f <- function(p) reml_deviance(X, p)
+  s <- ss / df
+  starts <- list(c(max((s[1] - s[3]) / I, 0), max((s[2] - s[3]) / M, 0), s[3]), c(0, 0, sum(ss) / sum(df)),
+                 c(s[1] / I, s[2] / M, s[3] / 2))
+  fits <- lapply(starts, function(st) stats::optim(st, f, method = "L-BFGS-B", lower = c(0, 0, 1e-10),
+                                                   control = list(factr = 1, pgtol = 0, maxit = 1e4)))
+  fits[[which.min(vapply(fits, `[[`, 0, "value"))]]$par
+}
 
-test_that("D-study reliability rises with items and follows the 1/I law (Eq. 3)", {
-  comp <- gstudy_coefficients(var_model = 0.01, var_item = 0.05,
-                              var_residual = 0.20)
-  proj <- dstudy_curve(comp, c(1, 10, 100, 1000))
-  expect_true(all(diff(proj$m_rel_D) > 0))
-  # Direct check of sigma_M^2 / (sigma_M^2 + sigma_res^2 / I).
-  expect_equal(proj$m_rel_D, 0.01 / (0.01 + 0.20 / c(1, 10, 100, 1000)))
-  # Reliability approaches 1 as items accumulate.
-  expect_gt(dstudy_project(comp, n_items = 1e6)$m_rel_D, 0.99)
-})
+# Small random 0/1 matrices put a large share of draws on the boundary,
+# including the case where both moment estimates are negative.
+random_designs <- function(k, seed) {
+  set.seed(seed)
+  lapply(seq_len(k), function(j) {
+    M <- sample(3:8, 1); I <- sample(2:6, 1)
+    X <- matrix(rbinom(M * I, 1, runif(1, 0.2, 0.8)), M, I, dimnames = list(NULL, paste0("i", seq_len(I))))
+    X
+  })
+}
 
-test_that("D-study reliability never exceeds 1 or drops below 0", {
-  comp <- gstudy_coefficients(0.001, 0.5, 0.5)
-  proj <- dstudy_curve(comp, c(1, 5, 50, 500, 5000))
-  expect_true(all(proj$m_rel_D >= 0 & proj$m_rel_D <= 1))
-  expect_true(all(proj$m_dep_D >= 0 & proj$m_dep_D <= 1))
-})
-
-test_that("the expected tau carried by a D-study matches the mapping", {
-  comp <- gstudy_coefficients(0.02, 0.1, 0.3)
-  proj <- dstudy_project(comp, n_items = 50)
-  expect_equal(proj$expected_tau, g_to_expected_tau(proj$m_rel_D))
-})
-
-test_that("a failed G-study returns the full column set", {
-  ok  <- gstudy_coefficients(1, 1, 1, benchmark = "x")
-  bad <- gstudy_na_row("x")
-  expect_identical(names(ok), names(bad))
-  expect_true(all(is.na(bad$m_rel)))
-})
-
-test_that("fit_gstudy recovers known variance components", {
-  # Simulate Eq. (1) directly, then check the fitted components are close.
-  set.seed(42)
-  n_models <- 120; n_items <- 60
-  u <- rnorm(n_models, sd = sqrt(0.05))   # sigma^2_M = 0.05
-  v <- rnorm(n_items,  sd = sqrt(0.20))   # sigma^2_I = 0.20
-  dat <- expand.grid(model = seq_len(n_models), item = seq_len(n_items)) |>
-    dplyr::mutate(
-      benchmark = "sim",
-      model = as.character(model), item = as.character(item),
-      resp = 0.5 + u[as.integer(model)] + v[as.integer(item)] +
-        rnorm(dplyr::n(), sd = sqrt(0.10))   # sigma^2_e = 0.10
-    )
-  fit <- fit_gstudy(dat)
-  expect_equal(fit$model,    0.05, tolerance = 0.35)
-  expect_equal(fit$item,     0.20, tolerance = 0.35)
-  expect_equal(fit$Residual, 0.10, tolerance = 0.10)
-  # And the reliability implied by those components.
-  expect_equal(fit$m_rel, 0.05 / (0.05 + 0.10), tolerance = 0.15)
-})
-
-test_that("the relative _scale coefficients are identical to the _D ones", {
-  # Dividing numerator and denominator of the relative coefficient by the
-  # number of models cancels, so m_rel_scale == m_rel_D and i_rel_scale ==
-  # i_rel_D by construction, for any design size. The original code carried
-  # both pairs as if they differed. The dependability pair genuinely does
-  # differ, and that is checked below.
-  comp <- rbind(
-    gstudy_coefficients(0.01, 0.05, 0.20, "b1"),
-    gstudy_coefficients(0.30, 0.02, 0.90, "b2")
-  )
-  for (nm in c(1L, 7L, 250L)) {
-    for (nmod in c(1L, 13L, 400L)) {
-      proj <- dstudy_project(comp, n_items = nm, n_models = nmod)
-      expect_equal(proj$m_rel_scale, proj$m_rel_D,
-                   info = glue("n_items = {nm}, n_models = {nmod}"))
-      expect_equal(proj$i_rel_scale, proj$i_rel_D,
-                   info = glue("n_items = {nm}, n_models = {nmod}"))
-    }
+test_that("closed form equals numerical REML on every boundary configuration", {
+  seen <- character()
+  for (X in random_designs(400, 21)) {
+    vc <- variance_components(X, "anova")
+    if (!vc$status %in% REML_STATUS[1:4]) next
+    seen <- c(seen, vc$status)
+    est <- c(vc$var_model, vc$var_item, vc$var_residual); num <- brute_reml(X)
+    info <- paste(vc$status, paste(dim(X), collapse = "x"))
+    # The closed form is the constrained maximiser: no feasible point the
+    # optimiser finds has a higher REML likelihood, and the two agree to
+    # the optimiser's precision.
+    expect_lte(reml_deviance(X, est), reml_deviance(X, num) + 1e-10, label = info)
+    expect_equal(est, num, tolerance = 1e-3, info = info)
   }
+  expect_true(all(REML_STATUS[1:4] %in% seen))
 })
 
-test_that("the dependability _scale coefficients do depend on model count", {
-  comp <- gstudy_coefficients(0.05, 0.10, 0.30, "b")
-  one  <- dstudy_project(comp, n_items = 50, n_models = 1)
-  many <- dstudy_project(comp, n_items = 50, n_models = 100)
-  # More models means the item term is charged relatively more heavily against
-  # the averaged signal, so dependability falls.
-  expect_gt(one$m_dep_scale, many$m_dep_scale)
-  expect_equal(one$m_dep_scale, one$m_dep_D)
+test_that("both moment estimates negative is not the same as both components zero", {
+  # Find designs with MS_M < MS_R and MS_I < MS_R whose REML keeps one component.
+  kept <- 0
+  for (X in random_designs(400, 22)) {
+    M <- nrow(X); I <- ncol(X)
+    # Exact integer sums of squares: the textbook residual-by-subtraction can
+    # turn an exact tie (all mean squares equal) into a spurious "both negative".
+    e <- .crossed_ss(sum(X^2), sum(rowSums(X)^2), sum(colSums(X)^2), sum(X), M, I, exact = TRUE)
+    ms <- c(e$ssm, e$ssi, e$ssr) / c(M - 1, I - 1, (M - 1) * (I - 1))
+    if (!(ms[1] < ms[3] && ms[2] < ms[3])) next
+    vc <- variance_components(X, "anova")
+    if (vc$status == "boundary_both") next
+    kept <- kept + 1
+    expect_true(vc$var_model > 0 || vc$var_item > 0)
+    if (requireNamespace("lme4", quietly = TRUE))
+      expect_equal(c(vc$var_model, vc$var_item, vc$var_residual), unlist(.lmer_components(X)[1:3]),
+                   tolerance = 1e-4, ignore_attr = TRUE)
+  }
+  expect_gt(kept, 5)
 })
 
-test_that("i_dep_D does not depend on the item count", {
-  # Items are the object of measurement and are not averaged over, so the
-  # absolute error variance is sigma_M^2/n_models + sigma_e^2/n_models, with
-  # no 1/I term. Compare i_rel_D, which likewise carries no n_items divisor.
-  comp <- gstudy_coefficients(0.0039, 0.0254, 0.1951, "b")
-  vals <- vapply(c(1L, 10L, 1000L),
-                 function(ni) dstudy_project(comp, n_items = ni,
-                                             n_models = 4)$i_dep_D,
-                 numeric(1))
-  expect_equal(vals, rep(vals[1], 3))
-  expect_equal(vals[1], 0.0254 / (0.0254 + 0.0039 / 4 + 0.1951 / 4))
+test_that("a positive model variance survives when only items and residual are pooled", {
+  # MS_I < MS_M < MS_R but MS_M exceeds the item+residual pool: s2_M > 0, G > 0.
+  X <- matrix(c(1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1, 0, 1, 0, 0, 1, 1, 1, 1, 0, 1, 0, 1, 0),
+              6, 5, dimnames = list(NULL, paste0("i", 1:5)))
+  ss <- direct_ss(X); ms <- ss / c(5, 4, 20)
+  pir <- (ss[2] + ss[3]) / 24
+  skip_if_not(ms[2] < ms[1] && ms[1] < ms[3] && ms[1] >= pir, "fixture no longer in the target case")
+  vc <- variance_components(X, "anova")
+  expect_equal(vc$status, "boundary_item")
+  expect_equal(vc$var_model, (ms[[1]] - pir[[1]]) / 5)   # (MS_M - pooled) / I
+  skip_if_not_installed("lme4")
+  expect_equal(c(vc$var_model, vc$var_item, vc$var_residual), unlist(.lmer_components(X)[1:3]),
+               tolerance = 1e-4, ignore_attr = TRUE)
+  expect_gt(reliability_coefficients(vc)$g_rel, 0)
+})
+
+test_that("a zero residual is reported as degenerate, not as a zero-variance fit", {
+  X <- cbind(i1 = c(0, 1, 1, 0, 1), i2 = c(0, 1, 1, 0, 1))  # two identical items
+  vc <- variance_components(X, "anova")
+  expect_equal(vc$status, "degenerate")
+  expect_true(is.na(vc$var_model) && is.na(vc$var_residual))
+  expect_true(is.na(reliability_coefficients(vc)$g_rel))
+  X <- rbind(c(0, 1, 1), c(0, 1, 1), c(0, 1, 1))           # identical models: item effects only
+  colnames(X) <- c("i1", "i2", "i3")
+  expect_equal(variance_components(X, "anova")$status, "degenerate")
+  expect_equal(variance_components(matrix(1, 4, 3, dimnames = list(NULL, letters[1:3])), "anova")$status, "constant")
+  expect_equal(variance_components(matrix(c(0, 1), 1, 2, dimnames = list(NULL, letters[1:2])), "anova")$status, "too_small")
+})
+
+test_that("integer sums of squares are exact and match the direct residual", {
+  X <- sim_responses(80, 60, seed = 5)
+  rs <- rowSums(X); cs <- colSums(X)
+  ss <- .crossed_ss(sum(X^2), sum(rs^2), sum(cs^2), sum(rs), nrow(X), ncol(X), exact = TRUE)
+  expect_true(ss$exact)
+  expect_equal(unlist(ss[c("ssm", "ssi", "ssr")]), direct_ss(X), tolerance = 1e-12, ignore_attr = TRUE)
+  # Integer numerators: M*I*SS is a whole number.
+  expect_equal((nrow(X) * ncol(X) * ss$ssr) %% 1, 0)
+  # Non-integer data with a tiny residual: no negative residual from cancellation.
+  Y <- outer(rnorm(30, 0, 1e4), rep(1, 20)) + outer(rep(1, 30), rnorm(20, 0, 1e4)) + 1e-9 * rnorm(600)
+  colnames(Y) <- paste0("i", 1:20)
+  vc <- variance_components(Y, "anova")
+  expect_true(vc$status == "degenerate" || vc$var_residual >= 0)
+})
+
+test_that(".balanced_reml recycles scalar inputs and rejects ragged ones", {
+  ss <- lapply(2:6, function(n) direct_ss(sim_responses(20, 12, seed = n)[, 1:n]))
+  ssm <- sapply(ss, `[[`, "ssm"); ssi <- sapply(ss, `[[`, "ssi"); ssr <- sapply(ss, `[[`, "ssr")
+  vec <- .balanced_reml(ssm, ssi, ssr, 20, 2:6)          # scalar M, vector I
+  one <- lapply(1:5, function(j) .balanced_reml(ssm[j], ssi[j], ssr[j], 20, j + 1))
+  expect_false(anyNA(vec$var_model))
+  expect_equal(vec$var_model, sapply(one, `[[`, "var_model"))
+  expect_equal(vec$status, sapply(one, `[[`, "status"))
+  expect_error(.balanced_reml(ssm, ssi, ssr, c(20, 20), 2:6), "common length")
+})
+
+test_that("missing cells go to lmer; dropping NAs from the balanced formulas is not REML", {
+  skip_if_not_installed("lme4")
+  X <- sim_responses(40, 25, seed = 6)
+  set.seed(6); X[sample(length(X), 60)] <- NA
+  expect_error(variance_components(X, "anova"), "complete matrix")
+  vc <- variance_components(X)
+  expect_equal(vc$engine, "lmer")
+  # Naive na.rm version of the balanced formulas.
+  M <- nrow(X); I <- ncol(X); Xc <- X - mean(X, na.rm = TRUE)
+  ssm <- I * sum(rowMeans(Xc, na.rm = TRUE)^2); ssi <- M * sum(colMeans(Xc, na.rm = TRUE)^2)
+  ssr <- sum(Xc^2, na.rm = TRUE) - ssm - ssi
+  naive <- .balanced_reml(ssm, ssi, ssr, M, I)
+  expect_false(isTRUE(all.equal(c(naive$var_model, naive$var_item, naive$var_residual),
+                                c(vc$var_model, vc$var_item, vc$var_residual), tolerance = 1e-4)))
 })

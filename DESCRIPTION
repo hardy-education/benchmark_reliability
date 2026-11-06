@@ -1,54 +1,32 @@
-Package: benchmarkreliability
-Title: Benchmarks as Measurement Instruments: Signal, Noise, and Rank Stability
-Version: 1.0.0
+Package: benchrel
+Type: Package
+Title: Benchmarks as Measurement Instruments: Reliability, Item Selection, and Distribution Shift
+Version: 0.2.0
 Authors@R:
     person("Michael", "Hardy", role = c("aut", "cre"))
 Description: Analysis code for "Benchmarks as Measurement Instruments:
     Quantifying Signal and Noise for More Efficient AI Evaluations Under
-    Distribution Shift". Recasts AI benchmark reliability as a signal-to-noise
-    ratio from a crossed random-effects variance decomposition, maps variance
-    components to expected rank concordance, introduces the lambda*_6
-    item-level reliability proxy for the many-items/few-models regime, and
-    evaluates reliability under positive distribution shift of the evaluated
-    model population.
+    Distribution Shift". Provides exact, fast estimators for crossed
+    model-by-item variance components, generalizability and dependability
+    coefficients, the lambda-star-6 item reliability proxy and competing
+    item-selection criteria, and empirical reliability curves as items are
+    added in a chosen order.
 License: MIT + file LICENSE
 Encoding: UTF-8
 URL: https://github.com/hardy-education/benchmark_reliability
-Depends:
-    R (>= 4.2)
+Depends: R (>= 4.2)
 Imports:
-    collapse,
     data.table,
-    dplyr,
+    matrixStats,
+    stats,
+    utils
+Suggests:
     fixest,
-    forcats,
-    furrr,
-    future,
-    future.apply,
     ggplot2,
-    ggthemes,
-    glue,
-    here,
-    janitor,
     lme4,
-    lmerTest,
     mirt,
     mokken,
-    naniar,
-    parameters,
     pcaPP,
     psych,
-    purrr,
-    readr,
-    rlang,
-    stringr,
-    tibble,
-    tictoc,
-    tidyr,
-    cowplot,
-    ggpubr,
-    ggrepel
-Suggests:
-    ggmirt,
     testthat (>= 3.0.0)
 Config/testthat/edition: 3

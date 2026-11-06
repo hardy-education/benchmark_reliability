@@ -1,52 +1,66 @@
-# Reproduction pipeline. Each target depends on the outputs of the previous
-# stage, so `make all` runs the study end to end and `make figures` reruns only
-# the plots. Stages are long: the item-metric bootstrap is the expensive one.
-
+# Run from the repository root. Each stage skips work whose output exists;
+# add FORCE=--force to recompute. WORKERS sets per-stage parallelism.
+WORKERS ?= 1
+FORCE ?=
 R := Rscript
 
-.PHONY: all deps data item-metrics adjust gd-studies rank-stability facet figures test clean-figures help
-
-help:
-	@echo "Targets:"
-	@echo "  deps            install the R packages listed in DESCRIPTION"
-	@echo "  data            check that the input data are present"
-	@echo "  item-metrics    stage 10: per-item reliability metrics (slow: hours)"
-	@echo "  adjust          stage 20: remove draw-level fixed effects, aggregate"
-	@echo "  gd-studies      stage 30: G/D studies over item budgets (slow)"
-	@echo "  rank-stability  stage 40: empirical Kendall tau curves"
-	@echo "  facet           stage 50: Open LLM facet G-study"
-	@echo "  figures         stage 60: paper figures into figures/"
-	@echo "  test            run the unit tests"
-	@echo "  all             stages 10 through 60"
+.PHONY: deps test metrics metrics-fast curves gstudies timing all clean \
+        complete-data paper-curves paper-gstudies paper-inputs paper-figures shift-summary paper
 
 deps:
-	$(R) -e 'if (!requireNamespace("pak", quietly=TRUE)) install.packages("pak"); pak::local_install_deps(".")'
-
-data:
-	$(R) -e 'source("R/load_all.R"); stopifnot(file.exists(file.path(BR_DATA,"aggdf.csv"))); message("Input data present.")'
-
-item-metrics: data
-	$(R) scripts/10_item_metrics.R
-
-adjust:
-	$(R) scripts/20_adjust_metrics.R
-
-gd-studies:
-	$(R) scripts/30_gd_studies.R
-
-rank-stability:
-	$(R) scripts/40_rank_stability.R
-
-facet:
-	$(R) scripts/50_facet_gstudy.R
-
-figures:
-	$(R) scripts/60_figures.R
+	$(R) -e 'install.packages(c("data.table","matrixStats","pcaPP","lme4","mirt","mokken","psych","fixest","ggplot2","testthat","pkgload"))'
 
 test:
-	LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 $(R) -e 'testthat::test_dir("tests/testthat")'
+	$(R) -e 'pkgload::load_all(quiet = TRUE); testthat::test_dir("tests/testthat")'
 
-all: item-metrics adjust gd-studies rank-stability figures
+metrics-fast:   ## seconds: every method except 2PL, both reference populations
+	$(R) analysis/01_item_metrics.R --reference=all,top_frac:0.1 --methods=no_2pl --tag=fast --workers=$(WORKERS) $(FORCE)
 
-clean-figures:
-	rm -f figures/*.pdf figures/*.png
+metrics: metrics-fast   ## adds 2PL (the slow part)
+	$(R) analysis/01_item_metrics.R --reference=all,top_frac:0.1 --methods=irt_a --tag=irt --workers=$(WORKERS) $(FORCE)
+
+curves:
+	$(R) analysis/02_reliability_curves.R --reference=all,top_frac:0.1 --measured=all,top_frac:0.1 --workers=$(WORKERS) $(FORCE)
+
+gstudies:
+	$(R) analysis/03_population_gstudies.R --populations=all,top_half,top_frac:0.1,top_n:10
+
+# ---- Paper figures and tables (docs/FIGURES.md); outputs go to paper_figures/ (git-ignored) ----
+SHIFT_REFS := bottom_half,not_top_frac:0.1,not_top_n:10
+RAW ?= data   ## directory with wabm_item_scores/, openeval_response_scores/, eee_item_level_filtered.csv, livebench.parquet
+
+complete-data:   ## the 100+ Complete benchmarks -> data/complete_cells.csv.gz (Fig. 3)
+	$(R) analysis/00_build_complete.R --raw=$(RAW)
+
+paper-curves:   ## every criterion under the three positive shifts; random order in-sample for (A), (B), (F)
+	$(R) analysis/01_item_metrics.R --reference=$(SHIFT_REFS) --methods=no_2pl --tag=fast --workers=$(WORKERS) $(FORCE)
+	$(R) analysis/01_item_metrics.R --reference=$(SHIFT_REFS) --methods=irt_a --tag=irt --workers=$(WORKERS) $(FORCE)
+	$(R) analysis/02_reliability_curves.R --reference=bottom_half --measured=top_half --workers=$(WORKERS) $(FORCE)
+	$(R) analysis/02_reliability_curves.R --reference=not_top_frac:0.1 --measured=top_frac:0.1 --workers=$(WORKERS) $(FORCE)
+	$(R) analysis/02_reliability_curves.R --reference=not_top_n:10 --measured=top_n:10 --workers=$(WORKERS) $(FORCE)
+	$(R) analysis/01_item_metrics.R --reference=all,top_half,top_n:10 --methods=no_2pl --tag=fast --workers=$(WORKERS) $(FORCE)
+	for p in all top_half top_n:10; do \
+	  $(R) analysis/02_reliability_curves.R --reference=$$p --measured=$$p --methods=random --workers=$(WORKERS) $(FORCE) || exit 1; \
+	done
+
+paper-gstudies:   ## full-benchmark G-studies; the Complete set needs `make complete-data` first
+	$(R) analysis/03_population_gstudies.R --benchmarks=appendix --populations=all,top_half,top_frac:0.1,top_n:10
+	$(R) analysis/03_population_gstudies.R --benchmarks=complete --populations=all,top_half,top_frac:0.1,top_n:10 --workers=$(WORKERS)
+
+paper-inputs: paper-curves paper-gstudies
+
+paper-figures:   ## the 16 paper figures + figures.tex, manifest.csv, preview.tex
+	$(R) analysis/04_paper_figures.R --workers=$(WORKERS)
+
+shift-summary:   ## criteria vs random at 10% of items under positive shift -> paper_figures/tables/
+	$(R) analysis/06_shift_summary.R
+
+paper: paper-inputs paper-figures shift-summary
+
+timing:
+	$(R) analysis/05_timing_report.R --workers=8
+
+all: metrics curves gstudies timing
+
+clean:
+	rm -rf results/* figures/* paper_figures/*
