@@ -1,8 +1,10 @@
 # Migration from the legacy scripts
 
-Sources: `refactoring_code/metric_bootstraps v2.R`, `topk_q_gstudies.R`,
-`plot_all_code v2.R`, `lambda_star_full.R`, and the earlier refactor in
-`benchmark_reliability/`.
+Sources: the original analysis scripts (`metric_bootstraps v2.R`,
+`topk_q_gstudies.R`, `plot_all_code v2.R`, `lambda_star_full.R`; earlier
+versions are in `legacy/`), and the earlier refactor of this repository
+(`R/00_setup.R`–`R/07_plots.R`, `scripts/`, `REFACTORING.md`), which benchrel
+replaces.
 
 ## Names
 
@@ -51,6 +53,28 @@ Sources: `refactoring_code/metric_bootstraps v2.R`, `topk_q_gstudies.R`,
    there; the closed form returns NA components with `status = "degenerate"`
    (or `"constant"`). Every variance-component row now has a `status` column
    that names any boundary.
+9. **Population eligibility.** A top-Y% or top-n population is used on a
+   benchmark only if it has more than 5 models and is at most half of the
+   benchmark's models (`population_eligible()`). Bottom groups only need more
+   than 5 models, and the temporal halves need upload dates for at least 90%
+   of the models. The cached functions and the
+   figure recipes skip ineligible cells, which drops the top 10% on
+   AIR-Bench 2024, BBQ and Thai Exam (4 models each). The legacy code fitted
+   them anyway.
+10. **`random_frac:<p>:<seed>`** now draws from the alphabetically sorted
+    model names and leaves the caller's random-number stream unchanged.
+    `random_comp:<p>:<seed>` is exactly the other models. Earlier versions
+    sampled from the score-ordered list, so the same seed picked different
+    models.
+11. **Complete-set G-studies average replicates first.** The legacy
+    `gstudy_agg.csv` fitted `lmer(score ~ (1|model) + (1|item))` to every
+    replicate, run and prompt setup. `build_complete_cells()` first averages
+    these within each model × item cell (the unit a benchmark score averages
+    over), so the residual no longer contains run-to-run noise. It also adds a
+    top 10% population and applies the eligibility rule.
+12. **Figures and their LaTeX are build outputs.** `figures/` and
+    `paper_figures/` are git-ignored; `make paper-figures` regenerates the
+    paper's figures and captions (`docs/FIGURES.md`).
 
 ## Bugs in the legacy code that the new code avoids
 

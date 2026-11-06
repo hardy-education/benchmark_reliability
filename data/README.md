@@ -20,3 +20,31 @@ Check the file with:
 ```bash
 Rscript -e 'pkgload::load_all(); print(benchmark_summary(load_responses()))'
 ```
+
+## Complete benchmark set (optional; reliability landscape only)
+
+`complete_cells.csv.gz` contains 109 further benchmarks, one row per
+model × item cell. Build it from the outputs of the `data_collection/` scripts:
+
+```bash
+Rscript analysis/00_build_complete.R --raw=/dir/with/sources
+# or name each source:
+Rscript analysis/00_build_complete.R --wabm=.../wabm_item_scores --openeval=.../openeval_response_scores \
+  --eee=.../eee_item_level_filtered.csv --livebench=.../livebench.parquet
+```
+
+| Source | Files read | Score used |
+|---|---|---|
+| WABM | `wabm_item_scores/{scores,metrics,items}.csv` | primary metric, averaged over replicates |
+| OpenEval | `openeval_response_scores/{scores,metrics,responses}.csv` | primary metric, averaged over runs and prompt setups |
+| Every Eval Ever | `eee_item_level_filtered.csv` (6 GB; only 4 columns are read) | `is_correct` |
+| LiveBench | `livebench.parquet` (needs the `arrow` package) | `score` |
+
+Benchmarks whose cells are all identical are dropped. On the paper's data
+these are the EEE IFEval, AgentHarm, HealthBench and LINGOLY sets and the
+WABM SALAD-Bench, which score 0 everywhere.
+
+`openllm_all_model_info_full.csv` (Open LLM Leaderboard model metadata;
+4,201,054 bytes, MD5 `cd42d8098c7236ed0d7990bb40e8546f`) gives the upload
+dates for the temporal populations `early_half` / `late_half`. To
+use them: `model_scores(long, model_upload_dates())`.

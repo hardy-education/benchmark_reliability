@@ -76,15 +76,16 @@ benchmark_curves <- function(long, scores, bench, metrics, measured = "all",
 #'
 #' @param populations Population strings to compare.
 #' @param n_grid Test lengths for the D-study projection.
-#' @return list(gstudy = one row per benchmark x population, dstudy = curves).
+#' @return list(gstudy = one row per benchmark x population (see
+#'   [gstudy_row()]; ineligible populations have NA components), dstudy =
+#'   D-study curves for the eligible rows).
 population_gstudies <- function(long, scores, benchmarks, populations = c("all", "top_half", "top_n:10"),
                                 n_grid = unique(round(10^seq(0, 4, by = 0.05))), missing = "auto") {
   g <- data.table::rbindlist(lapply(benchmarks, function(b) data.table::rbindlist(lapply(populations, function(p) {
-    X <- handle_missing(response_matrix(long, b, models = population_models(scores, b, p)), missing)
-    vc <- variance_components(X)
-    reliability_coefficients(vc)[, `:=`(benchmark = b, population = p, mean_score = mean(X))]
-  }))))
-  d <- dstudy_curve(g[, .(benchmark, population, var_model, var_item, var_residual, n_models)], n_grid)
+    gstudy_row(long, scores, b, p, missing)
+  }), fill = TRUE)), fill = TRUE)
+  ok <- g[eligible == TRUE & !is.na(var_model)]
+  d <- dstudy_curve(ok[, .(benchmark, population, var_model, var_item, var_residual, n_models)], n_grid)
   list(gstudy = g, dstudy = d)
 }
 

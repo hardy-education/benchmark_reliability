@@ -8,7 +8,13 @@ utils::globalVariables(c(
   "metric", "value", "rank", "method", "draw", "g_rel", "g_abs", "kendall",
   "var_model", "var_item", "var_residual", "engine", "lo", "hi", ".N", ".SD",
   "n_eval", "expected_tau", "snr_rel", "snr_abs", "seconds", "label", "reference",
-  "measured", "g_rel_lo", "g_rel_hi", "n_models", "lt", "type", "pop", "mean_score"
+  "measured", "g_rel_lo", "g_rel_hi", "n_models", "lt", "type", "pop", "mean_score",
+  "official", "date", "fullname", "is_primary", "metric_uid", "item_uid", "model_uid", "eee_benchmark",
+  "model_id", "sample_id", "is_correct", "question_id", "n_obs", "dataset", "v", "n", "status",
+  "prop_model", "prop_item", "prop_residual", "category", "n_tasks", "threshold", "x", "y", "ymin", "ymax",
+  "group", "colour_key", "linetype_key", "set", "section", "r2_tau", "n_needed", "rel_type", "pair",
+  "eligible", "n_benchmark_models", "max_abs_diff_lmer", "coverage", "n_cells",
+  "benchmark_lab", "bad", "pair", "colour_key", "grp", "pop_lab", "task_lab", "boundary", "xe", "population_label", "method_label", "outcome", "alpha_n", "role"
 ))
 
 #' Directory that holds the input data

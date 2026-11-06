@@ -19,7 +19,7 @@ flags <- parse_flags(defaults = list(benchmarks = "all18", reference = "all", me
                                      missing = "auto", workers = 1, force = FALSE, tag = ""))
 methods <- resolve_methods(flags$methods)
 long <- load_responses(benchmarks = flags$benchmarks)
-scores <- model_scores(long)
+scores <- model_scores(long, dates = upload_dates())
 benches <- sort(unique(long$benchmark))
 
 jobs <- CJ(benchmark = benches, reference = flags$reference, sorted = FALSE)

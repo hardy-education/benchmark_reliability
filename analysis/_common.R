@@ -37,3 +37,9 @@ run_jobs <- function(n, f, workers, preload = character()) {
   if (length(bad)) stop(length(bad), " of ", n, " jobs failed.", call. = FALSE)
   invisible(res)
 }
+
+# Model upload dates for the temporal populations (early_half / late_half),
+# when the Open LLM Leaderboard metadata is in data/; NULL otherwise.
+upload_dates <- function(path = data_path("openllm_all_model_info_full.csv")) {
+  if (file.exists(path)) model_upload_dates(path) else NULL
+}

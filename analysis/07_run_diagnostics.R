@@ -14,7 +14,7 @@
 source("analysis/_common.R")
 flags <- parse_flags(defaults = list(benchmarks = "all18", reference = "bottom_half", measured = "top_half", k = 25L))
 long <- load_responses(benchmarks = flags$benchmarks)
-scores <- model_scores(long)
+scores <- model_scores(long, dates = upload_dates())
 tag <- paste0(population_tag(flags$reference), "__", population_tag(flags$measured))
 
 res <- rbindlist(lapply(sort(unique(long$benchmark)), function(b) {

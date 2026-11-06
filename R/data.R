@@ -8,11 +8,42 @@
 
 #' Benchmark sets used in the paper
 #'
-#' `core4` is the four Open LLM Leaderboard benchmarks shown in the main-text
-#' figures; `all18` is every benchmark in `aggdf.csv`.
+#' * `main` (alias `core4`): the four benchmarks of the main-text figures.
+#' * `legacy_main`: `main` plus MuSR (the earlier draft's main set).
+#' * `appendix` (alias `all18`): the 18 item-selection benchmarks in `aggdf.csv`.
+#' * `temporal`: the seven Open LLM Leaderboard benchmarks with model upload
+#'   dates (paper App. H; populations `early_half` / `late_half`).
+#'
+#' The Complete set (100+ benchmarks from several sources) is not a subset of
+#' `aggdf.csv`; load it with [complete_responses()].
 BENCHMARK_SETS <- list(
-  core4 = c("arc_challenge", "bbh", "gpqa", "mmlu_pro")
+  main = c("arc_challenge", "bbh", "gpqa", "mmlu_pro"),
+  core4 = c("arc_challenge", "bbh", "gpqa", "mmlu_pro"),
+  legacy_main = c("arc_challenge", "bbh", "gpqa", "mmlu_pro", "musr"),
+  appendix = c("air_bench_2024", "arc_challenge", "bbh", "bbq", "boolq", "commonsense", "gpqa", "ifeval",
+               "legalbench", "med_qa", "mmlu_pro", "mmluclinic", "mmlumath", "mmlupromed", "musr",
+               "openllm_math", "thai_exam", "wikifact"),
+  temporal = c("arc_challenge", "bbh", "gpqa", "ifeval", "mmlu_pro", "musr", "openllm_math")
 )
+
+#' Display names for benchmarks (falls back to the raw name)
+BENCHMARK_LABELS <- c(
+  air_bench_2024 = "AIR-Bench 2024", arc_challenge = "ARC-Challenge", bbh = "BBH", bbq = "BBQ",
+  boolq = "BoolQ", commonsense = "CommonSense", gpqa = "GPQA", ifeval = "IFEval", legalbench = "LegalBench",
+  med_qa = "MedQA", mmlu_pro = "MMLU-Pro", mmluclinic = "MMLU Clinical", mmlumath = "MMLU Math",
+  mmlupromed = "MMLU Prof. Med.", musr = "MuSR", openllm_math = "MATH Lvl 5", thai_exam = "Thai Exam",
+  wikifact = "WikiFact"
+)
+
+#' Display name of a benchmark
+benchmark_label <- function(x) {
+  out <- unname(BENCHMARK_LABELS[x])
+  ifelse(is.na(out), x, out)
+}
+
+#' Human-readable name of a benchmark set
+BENCHMARK_SET_LABELS <- c(main = "Main", core4 = "Main", legacy_main = "Legacy Main",
+                          appendix = "Appendix", all18 = "Appendix", temporal = "Temporal", complete = "Complete")
 
 #' Load the pooled response table in long format
 #'
@@ -38,7 +69,8 @@ load_responses <- function(path = data_path("aggdf.csv"), benchmarks = NULL) {
 #' @param benchmarks `NULL`, `"all18"`, a [BENCHMARK_SETS] name, or names.
 #' @param available Benchmarks present in the data.
 resolve_benchmarks <- function(benchmarks, available) {
-  if (is.null(benchmarks) || identical(benchmarks, "all18") || identical(benchmarks, "all")) return(sort(available))
+  if (is.null(benchmarks) || identical(benchmarks, "all18") || identical(benchmarks, "all") ||
+      identical(benchmarks, "complete")) return(sort(available))
   if (length(benchmarks) == 1 && benchmarks %in% names(BENCHMARK_SETS)) benchmarks <- BENCHMARK_SETS[[benchmarks]]
   bad <- setdiff(benchmarks, available)
   if (length(bad)) stop("Unknown benchmark(s): ", paste(bad, collapse = ", "), call. = FALSE)
